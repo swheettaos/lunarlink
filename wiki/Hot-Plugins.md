@@ -54,6 +54,11 @@ stateDiagram-v2
 ## Reloading
 
 From the game: [[The F9 Window]] (**Reload** on a row, **Reload changed** for everything with a newer build on disk).
+
+A plugin that sets up the world as a save loads gets `WorldLoaded()` right after a mid-game reload's `Start`, so it
+sets the running world up again the same way; one that has to be in place before a save loads starts at game start
+with `StartEarly`. Its own Unity types are renamed per copy. See
+[Plugins that set up the world](Writing-a-Hot-Plugin#plugins-that-set-up-the-world).
 From a script:
 
 | Request | Does |
@@ -115,6 +120,9 @@ The full story, step by step: [[The Wrapper]].
 A plugin with a normal BepInEx plugin class (a `BasePlugin` with `[BepInPlugin]`) and no `Start`/`Stop` of its own
 runs wrapped, while the **LunarLink.Wrap** module is on (it is by default). The module rewrites the DLL as it loads it
 so that what the plugin starts can be undone, and gives LunarLink an object to start and stop like any hot plugin.
+Its asset bundles are unloaded when it stops, and its choices (static enum settings) carry to the new copy. One that
+loads its own content reloads only at the main menu while a world is loaded: F9's **Save & reload** does that round
+trip for you.
 
 | | What happens |
 |---|---|

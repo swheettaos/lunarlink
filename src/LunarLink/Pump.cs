@@ -25,7 +25,8 @@ namespace LunarLink
 
         // At most ~8 ms of request work per frame so the game never stalls; the rest waits for later frames.
         // Requests are answered as soon as the world exists (it is looked for once a second until then).
-        static float worldSince = -1f, nextLook = 0f;
+        static float worldSince = -1f, nextLook = 0f, nextWorldLook = 0f;
+        static bool worldIn;                                             // a world loaded, as the hot plugins were last told
         void Update()
         {
             Plugin.Frames++;
@@ -52,7 +53,16 @@ namespace LunarLink
                 // MoonWorld.UpdateProgress (start-up clean-section check) right after perf timers were patched in at this
                 // point. The hot plugins (LunarLink's modules among them) start now, after loading.
                 Journal("pump: game loaded; tracing every patched call until frame " + TraceUntil);
-                Hot.StartAll();
+                worldIn = true; Hot.WorldChanged(true);                     // plugins already running (StartEarly ones) hear of it
+                Hot.StartAll();                                              // the rest start now (and hear of it from Start)
+            }
+            // later worlds (another save, or back from the main menu): the hot plugins' WorldLoaded / WorldUnloaded, looked
+            // for once a second; a world counts once its loading screen is gone
+            if (Time.realtimeSinceStartup >= nextWorldLook)
+            {
+                nextWorldLook = Time.realtimeSinceStartup + 1f;
+                bool inWorld = World() != null && !Loading();
+                if (inWorld != worldIn) { worldIn = inWorld; Journal("pump: world " + (inWorld ? "loaded" : "gone")); Hot.WorldChanged(inWorld); }
             }
             Trace("pump: requests");
             var clock = System.Diagnostics.Stopwatch.StartNew();

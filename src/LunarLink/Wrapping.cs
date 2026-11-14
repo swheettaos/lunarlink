@@ -13,6 +13,9 @@ namespace LunarLink
         // content: it loads asset bundles (its reloads in a world wait for the main menu).
         byte[] Prepare(byte[] dll, int n, int track, out string note, out string[] warnings, out bool native, out bool content);
 
+        // A hot plugin's DLL with its own Il2Cpp types renamed for copy n (Driver -> Driver_hotn); null when it has none.
+        byte[] RenameTypes(byte[] dll, int n);
+
         // The hot object for a loaded rewritten copy: Start(string), string Stop(), and HandleHttp, HttpHelp and
         // UpdateFeed passed on to the plugin. Null when it has no BepInEx plugin class.
         object Adapt(Assembly asm, string file, int track);

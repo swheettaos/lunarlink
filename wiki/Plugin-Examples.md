@@ -29,6 +29,22 @@ curl -s 127.0.0.1:8765/hello                           # {"ok":true,"starts":1,"
 ./build.sh --hot HelloHot                              # change something, run it again: starts is now 2
 ```
 
+## WorldHot: a plugin that sets up the world
+
+[`samples/WorldHot`](https://github.com/swheettaos/lunarlink/tree/main/samples/WorldHot) shows what a plugin like
+Mars Sweepers needs to reload mid-game: `StartEarly` (it starts before any world), `WorldLoaded()` and
+`WorldUnloaded()` (a marker object placed in each world and removed when it goes, also right after a mid-game reload),
+its own Unity type (`WorldMarker`, renamed `WorldMarker_hot2` in the next copy) and its counters handed over through
+`Stop()`. `GET /worldhot` reports it all. Its `HotHost` calls the world events itself when it runs as a normal plugin.
+
+```csharp
+<!-- include: samples/WorldHot/Main.cs -->
+```
+
+```csharp
+<!-- include: samples/WorldHot/HotHost.cs -->
+```
+
 ## Recipes
 
 ### Hand over structured state

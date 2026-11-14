@@ -56,6 +56,8 @@ namespace LunarLink
             public bool WrapNative;                                           // native hooks the wrapper can't undo: off waits for a restart
             public bool ReloadAtMenu;                                         // a wrapped plugin's reload asked for in a world: done at the main menu
             public bool LoadsContent;                                         // the wrapper found it loads asset bundles (its own content)
+            public bool Early;                                                // a hot plugin with StartEarly: starts at game start, before any world
+            public MethodInfo WorldM, WorldGoneM;                             // its optional WorldLoaded() and WorldUnloaded()
             public float WatchUntil; public int WatchErrors;                  // just reloaded: its errors are counted (ReloadWatch)
             public readonly List<string> Warnings = new List<string>();     // what the wrapper found in the DLL, for F9
             public MethodInfo StartM, StopM, UpdateM, LateM, HttpM, HelpM;
@@ -96,7 +98,7 @@ namespace LunarLink
             BepInEx.Unity.IL2CPP.IL2CPPChainloader.Instance.Finished += () =>
             {
                 chainDone = true;
-                foreach (var w in plugins.Values.Where(x => x.Wrapped && !x.Running && x.Error == null).ToList()) Start(w, null);
+                foreach (var w in plugins.Values.Where(x => (x.Wrapped || x.Early) && !x.Running && x.Error == null).ToList()) Start(w, null);
             };
             if (!Directory.Exists(Dir)) return;
             if (!File.Exists(SettingsFile))
@@ -333,7 +335,7 @@ namespace LunarLink
             ReloadWatch.Begin(p);
             string state = p.Running ? StopAndUnload(p) : (p.Obj != null ? Unload(p, null) : null);
             try { Load(p); } catch (Exception e) { Fail(p, "load", e); return; }
-            if (started || (p.Wrapped && chainDone)) Start(p, state);
+            if (started || ((p.Wrapped || p.Early) && chainDone)) Start(p, state);
         }
 
         static bool NewerOnDisk(Plugin p) => File.Exists(FileOf(p.Name)) && File.GetLastWriteTimeUtc(FileOf(p.Name)) > p.FileTime;
@@ -354,21 +356,28 @@ namespace LunarLink
             var bytes = File.ReadAllBytes(file);
             var pdbFile = Path.ChangeExtension(file, ".pdb");
             // a normal BepInEx plugin is rewritten by the wrapper module, when it's on (a rewritten copy has no pdb)
-            int track = 0; string note = null;
+            int track = 0; string note = null; bool rewritten = false;
             if (Wrapper != null)
             {
                 track = HotTrack.New();
                 var w = Wrapper.Prepare(bytes, p.Loads + 1, track, out note, out var warnings, out var native, out var content);
                 if (w != null) { bytes = w; p.Warnings.AddRange(warnings); p.WrapNative = native; p.LoadsContent = content; }
-                else { HotTrack.Discard(track); track = 0; }
+                else
+                {
+                    HotTrack.Discard(track); track = 0;
+                    // a hot plugin with its own Il2Cpp types: renamed in each later copy, as wrapped ones are
+                    var renamed = p.Loads > 0 ? Wrapper.RenameTypes(bytes, p.Loads + 1) : null;
+                    if (renamed != null) { bytes = renamed; rewritten = true; note = "Il2Cpp types renamed"; }
+                }
             }
             Assembly asm;
             using (var dll = new MemoryStream(bytes))
             {
-                if (track == 0 && File.Exists(pdbFile)) using (var pdb = new MemoryStream(File.ReadAllBytes(pdbFile))) asm = p.Ctx.LoadFromStream(dll, pdb);
+                if (track == 0 && !rewritten && File.Exists(pdbFile)) using (var pdb = new MemoryStream(File.ReadAllBytes(pdbFile))) asm = p.Ctx.LoadFromStream(dll, pdb);
                 else asm = p.Ctx.LoadFromStream(dll);
             }
             p.Asm = asm;
+            HotTrack.Watch(asm, file);                                    // its own Il2Cpp types' bridges are recorded, to be freed
             p.FileTime = File.GetLastWriteTimeUtc(file);
             // the same plugin also in BepInEx/plugins/ (loaded at start) would run twice: refuse, and say which to turn off
             var dup = BepInEx.Unity.IL2CPP.IL2CPPChainloader.Instance.Plugins.Values.FirstOrDefault(b =>
@@ -403,8 +412,37 @@ namespace LunarLink
             if (p.HttpM != null && p.HttpM.ReturnType != typeof(string)) p.HttpM = null;
             p.HelpM = M(t, "HttpHelp"); if (p.HelpM != null && p.HelpM.ReturnType != typeof(string[])) p.HelpM = null;
             p.HasBoot = t.GetMethod("Boot", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null) != null;
+            p.WorldM = M(t, "WorldLoaded"); p.WorldGoneM = M(t, "WorldUnloaded");
+            p.Early = !p.Wrapped && StartsEarly(t);
             p.Loads++;
             Pump.Journal("hot: loaded " + p.Name + " (copy " + p.Loads + (p.Wrapped ? ", wrapped" + (note != null ? ", " + note : "") : "") + ")");
+        }
+
+        // public static bool StartEarly => true (a property or a field): start at game start, before any world
+        static bool StartsEarly(Type t)
+        {
+            try
+            {
+                const BindingFlags S = BindingFlags.Public | BindingFlags.Static;
+                if (t.GetProperty("StartEarly", S) is PropertyInfo pi && pi.PropertyType == typeof(bool)) return (bool)pi.GetValue(null);
+                if (t.GetField("StartEarly", S) is FieldInfo fi && fi.FieldType == typeof(bool)) return (bool)fi.GetValue(null);
+            }
+            catch { }
+            return false;
+        }
+
+        // World events: WorldLoaded() each time a world has finished loading, and right after Start() when one already
+        // has (so a plugin keeps its world set-up in one place); WorldUnloaded() once it's gone (the main menu).
+        internal static bool InWorld => Pump.World() != null && !Pump.Loading();
+        internal static void WorldChanged(bool loaded)
+        {
+            foreach (var p in plugins.Values.Where(x => x.Running).ToList()) World(p, loaded);
+        }
+        static void World(Plugin p, bool loaded)
+        {
+            var m = loaded ? p.WorldM : p.WorldGoneM; if (m == null) return;
+            try { m.Invoke(p.Obj, null); }
+            catch (Exception e) { var x = e.InnerException ?? e; LunarLink.Plugin.L.LogError("hot: " + p.Name + " " + m.Name + ": " + x); }
         }
 
         static MethodInfo M(Type t, string name, params Type[] args) => t.GetMethod(name, BindingFlags.Public | BindingFlags.Instance, null, args, null);
@@ -416,7 +454,8 @@ namespace LunarLink
             try
             {
                 p.StartM.Invoke(p.Obj, new object[] { state });
-                p.Running = true; Log("started " + p.Name + " (copy " + p.Loads + (p.Wrapped ? ", wrapped" : "") + ")");
+                p.Running = true; Log("started " + p.Name + " (copy " + p.Loads + (p.Wrapped ? ", wrapped" : p.Early ? ", early" : "") + ")");
+                if (InWorld) World(p, true);
             }
             catch (Exception e) { Fail(p, "Start", e); Unload(p, null); }   // whatever it did before throwing (patches, routes) goes
         }
@@ -445,6 +484,14 @@ namespace LunarLink
                 try { state = (string)p.StopM.Invoke(p.Obj, null); }
                 catch (Exception e) { var x = e.InnerException ?? e; LunarLink.Plugin.L.LogError("hot: " + p.Name + " Stop: " + x); }
                 if (p.Obj is IWrapped w) p.Leftovers.AddRange(w.Leftovers);
+                else if (p.Asm != null)
+                {
+                    // whatever of its own types is still there is destroyed (journalled); one it destroyed itself in Stop() is
+                    // only removed by Unity at the end of the frame, so it's not counted against the plugin
+                    var (_, problem) = HotTrack.DestroyObjects(p.Asm);
+                    if (problem != null) p.Leftovers.Add(problem);
+                    HotTrack.Forget(p.Asm);
+                }
             }
             return Unload(p, state);
         }
@@ -456,7 +503,7 @@ namespace LunarLink
             if (asm != null) { int n = Api.RemoveFrom(asm); if (n > 0) Pump.Journal("hot: " + p.Name + "'s " + n + " routes removed"); }
             p.State = state;
             var ctx = p.Ctx;
-            p.Obj = null; p.Ctx = null; p.Asm = null; p.Wrapped = false; p.StartM = p.StopM = p.UpdateM = p.LateM = p.HttpM = p.HelpM = null;
+            p.Obj = null; p.Ctx = null; p.Asm = null; p.Wrapped = false; p.Early = false; p.StartM = p.StopM = p.UpdateM = p.LateM = p.HttpM = p.HelpM = p.WorldM = p.WorldGoneM = null;
             if (ctx != null)
             {
                 p.Old.Add(new WeakReference(ctx));

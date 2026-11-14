@@ -39,9 +39,10 @@ A normal BepInEx plugin does its work in `Load()` and never expects to stop. To 
 
 | In the normal plugin | In the hot plugin |
 |---|---|
-| The work in `BasePlugin.Load()` | Moves to `Main.Start(string state)`, which runs once a moon has loaded |
+| The work in `BasePlugin.Load()` | Moves to `Main.Start(string state)`, which runs once a moon has loaded (or at game start, with `StartEarly`) |
+| Setting up each world as it loads (patching world loading, binding to its objects) | `Main.WorldLoaded()`, which also runs right after `Start` when a world is already loaded; `Main.WorldUnloaded()` lets it go |
 | Nothing undoes it | `Main.Stop()` undoes **all** of it, in reverse |
-| A MonoBehaviour of your own (`ClassInjector`, `AddComponent<T>()`) for `Update` | `Main.Update()` and `Main.LateUpdate()`: LunarLink calls them every frame |
+| A MonoBehaviour of your own (`ClassInjector`, `AddComponent<T>()`) for `Update` | `Main.Update()` and `Main.LateUpdate()`: LunarLink calls them every frame. Your own Unity types for objects in the world are fine too (rule 1) |
 | `Harmony.CreateAndPatchAll(...)` | `harmony = new Harmony(Id); harmony.PatchAll(...)` in `Start`, `harmony.UnpatchSelf()` in `Stop` |
 | Static fields that live for the whole game | Fields on `Main`; what must survive a reload is returned by `Stop()` as a string (JSON) and read back in `Start(state)` |
 | `Log` from `BasePlugin` | `Logger.CreateLogSource(name)` in `Start`, `Logger.Sources.Remove(log)` in `Stop` |
@@ -82,6 +83,9 @@ reference to LunarLink.
 | `string HandleHttp(string method, string path, NameValueCollection query, string body)` | no | For each request no LunarLink route answered. Return JSON, or `null` for "not mine" |
 | `string[] HttpHelp()` | no | One line per endpoint, `"GET /path?x= \| what it does"`, for `/help`, `/help.html` and the API tab |
 | `static void Boot()` | no | Once, at game start, from the first copy. The only place to register MoonFramework buildings and cargo |
+| `static bool StartEarly` (property or field, `true`) | no | Not a call: with it, `Start` runs at game start, where BepInEx starts normal plugins, before any world, and again there after a reload at the main menu. For a plugin that has to be in place before a save loads (it patches world loading). `Start` must not assume a world then |
+| `void WorldLoaded()` | no | Each time a world has finished loading (after the loading screen), **and right after `Start` when a world is already loaded**: set the world up here, and a copy reloaded mid-game sets it up exactly as a fresh load would |
+| `void WorldUnloaded()` | no | Once the world is gone (the main menu): let go of what `WorldLoaded` set up |
 | `string UpdateFeed()` | no | When the player checks for updates: where your builds are (see [Letting it update itself](#letting-it-update-itself)) |
 
 State crosses as a string because each copy has its own versions of your types; only .NET's, the game's, Unity's and
@@ -89,9 +93,13 @@ MoonFramework's types are shared between copies.
 
 ## The rules
 
-1. **No custom Il2Cpp types while loaded hot.** No `ClassInjector`, no MonoBehaviour of your own: a registered type can
-   never be unregistered, so a second copy would clash with the first. Use `Update()`. Unity's own components (Canvas,
-   Text, Button) are fine. `HotHost.cs` registers its MonoBehaviour only in the normal build, where the plugin loads once.
+1. **Your own Il2Cpp types need the LunarLink.Wrap module.** Il2Cpp never forgets a registered type's name, so each copy
+   after the first has its types renamed as it loads (`WorldMarker` → `WorldMarker_hot2`) by the Wrap module (on by
+   default); without it, a reload of a plugin with its own types fails. Register them in `Start` only when not yet
+   registered (`ClassInjector.IsTypeRegisteredInIl2Cpp<T>()`), and destroy their objects in `Stop()`: anything of them
+   still there afterwards is destroyed by LunarLink, and the old types' bridges are freed once Unity has removed the
+   objects. Don't look your types up by name string: the renamed ones wouldn't match. For per-frame work `Update()` is
+   still simplest.
 2. **One Harmony id** (your plugin's name, or ids starting with it), and `UnpatchSelf()` in `Stop()`. LunarLink takes
    out any patch left under that id after `Stop()` and reports it as a leftover.
 3. **`Stop()` undoes everything:** destroy the GameObjects you made (and any EventSystem you created), remove UI listeners
@@ -103,6 +111,25 @@ MoonFramework's types are shared between copies.
    does can reload: in `Start()`, put your machine factory on the building's spec (`Moon.BuildingOf(id).Spec.Machine`);
    in `Stop()`, save and stop your live machines and give their data back to MoonFramework so the next copy's machines
    start from it.
+
+## Plugins that set up the world
+
+A plugin that changes how a world is built (Mars Sweepers builds a whole planet as a save loads) needs three things to
+reload mid-game instead of only at the main menu. [`samples/WorldHot`](https://github.com/swheettaos/lunarlink/tree/main/samples/WorldHot) shows all of them:
+
+1. **`StartEarly`**, so its patches on world loading are in before the first save loads.
+2. **Its world set-up in `WorldLoaded()`**, not in a patch's one-off: LunarLink calls it on every load *and* right
+   after a reloaded copy's `Start` in a running world, so the new copy binds to the world that's already there (its
+   machines, its objects) the same way.
+3. **Its live state handed over:** `Stop()` returns what its world objects hold (Mars: its machines' production state)
+   and the next `Start(state)` reads it back before `WorldLoaded()` binds to the world.
+
+Plus, as for any hot plugin: `Stop()` unloads what it loaded (an asset bundle: `bundle.Unload(true)`, or the next copy
+can't load it), destroys its objects, and takes out its patches.
+
+Two traps seen in this game: Unity's generic `FindObjectOfType<T>()` doesn't exist here (it's stripped: use
+`FindObjectsOfType(Il2CppType.Of<T>())`), and a world object exists before the game has finished loading it, so wait
+for `WorldLoaded()` rather than polling for the world.
 
 ## Endpoints
 

@@ -30,12 +30,47 @@ namespace LunarLink
         {
             bep = (BasePlugin)Activator.CreateInstance(type);
             bep.Load();
+            Carry(state);                                   // the previous copy's choices, back in place
+        }
+
+        // A wrapped plugin can't hand over state itself, so its static enum settings - its modes and choices, such as
+        // Mars Sweepers' PlanetContext.MenuPlanet (Moon / Mars) - are carried from one copy to the next: read when a copy
+        // stops, written back once the next has loaded. Only enums: flags and counters ("set up already") start fresh,
+        // so the new copy still sets itself up. As lines "Type|field|value".
+        static string Choices(Assembly asm)
+        {
+            var lines = new List<string>();
+            foreach (var t in HotTrack.Types(asm).Where(t => !t.ContainsGenericParameters))
+                foreach (var f in t.GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
+                    .Where(f => f.FieldType.IsEnum && !f.IsLiteral && !f.IsInitOnly))
+                    try { lines.Add(t.FullName + "|" + f.Name + "|" + Convert.ToInt64(f.GetValue(null))); } catch { }
+            return lines.Count == 0 ? null : string.Join("\n", lines);
+        }
+
+        void Carry(string state)
+        {
+            if (string.IsNullOrEmpty(state)) return;
+            var asm = type.Assembly; var carried = new List<string>();
+            foreach (var line in state.Split('\n'))
+            {
+                var p = line.Split('|'); if (p.Length != 3 || !long.TryParse(p[2], out var v)) continue;
+                try
+                {
+                    var f = asm.GetType(p[0], false)?.GetField(p[1], BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                    if (f == null || !f.FieldType.IsEnum || f.IsInitOnly) continue;
+                    var value = Enum.ToObject(f.FieldType, v);
+                    if (!Equals(f.GetValue(null), value)) { f.SetValue(null, value); carried.Add(p[0].Substring(p[0].LastIndexOf('.') + 1) + "." + p[1].Replace("<", "").Replace(">k__BackingField", "") + " = " + value); }
+                }
+                catch { }
+            }
+            if (carried.Count > 0) Pump.Journal("hot: carried to the new copy: " + string.Join(", ", carried));
         }
 
         public string Stop()
         {
             left.Clear();
             if (bep == null) { HotTrack.Discard(track); return null; }
+            string choices = null; try { choices = Choices(type.Assembly); } catch { }
             var un = type.GetMethod("Unload", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
             if (un != null && un.DeclaringType != typeof(BasePlugin))
             {
@@ -47,7 +82,7 @@ namespace LunarLink
             try { BepInEx.Logging.Logger.Sources.Remove(bep.Log); } catch { }
             HotTrack.Forget(type.Assembly);
             bep = null;
-            return null;
+            return choices;                                  // the next copy's state: its choices (Carry)
         }
 
         // passed on to the plugin, when it has them
@@ -63,44 +98,13 @@ namespace LunarLink
             return m == null ? null : m.Invoke(bep, values);
         }
 
-        // Every component of the copy's Il2Cpp types, hidden ones too (BasePlugin.AddComponent puts them on BepInEx's
-        // hidden manager object). Destroy, not DestroyImmediate: this runs inside LunarLink's own Update, on that same
-        // manager object, and tearing a neighbour out mid-Update kills the game. Types are told apart by class pointer:
-        // Il2Cpp reflection on an injected type (Il2CppSystem.Type.FullName) crashes the game.
+        // its Unity components and objects (HotTrack.DestroyObjects, shared with hot plugins)
         void DestroyObjects()
         {
-            var asm = type.Assembly;
-            var types = new List<(string name, Il2CppSystem.Type il2, IntPtr cls)>();
-            foreach (var t in Types(asm).Where(t => typeof(Component).IsAssignableFrom(t)))
-                try
-                {
-                    var cls = Il2CppClassPointerStore.GetNativeClassPointer(t);
-                    if (cls != IntPtr.Zero) types.Add((t.FullName, Il2CppType.From(t), cls));
-                }
-                catch { }
-            if (types.Count == 0) return;
-            var classes = new HashSet<IntPtr>(types.Select(t => t.cls));
-            var held = new List<nint>();
-            int comps = 0, objects = 0;
-            foreach (var (_, it, _) in types)
-                foreach (var o in Resources.FindObjectsOfTypeAll(it))
-                {
-                    var c = o.TryCast<Component>(); if (c == null) continue;
-                    var go = c.gameObject;
-                    bool onlyMine = !go.name.StartsWith("BepInEx", StringComparison.OrdinalIgnoreCase)
-                        && go.GetComponents<Component>().All(x => x.TryCast<Transform>() != null || classes.Contains(IL2CPP.il2cpp_object_get_class(x.Pointer)));
-                    held.Add(IL2CPP.il2cpp_gchandle_new(c.Pointer, false));
-                    if (onlyMine) { UnityEngine.Object.Destroy(go); objects++; } else { UnityEngine.Object.Destroy(c); comps++; }
-                }
-            Pump.Journal("hot: destroying " + comps + " component(s) and " + objects + " game object(s) of " + string.Join(", ", types.Select(t => t.name)));
-            if (HotTrack.PinProblem != null) left.Add("its Il2Cpp types' bridges can't be freed (" + HotTrack.PinProblem + "): this copy can't leave memory");
-            HotTrack.ReleaseWhenGone(asm, types.Select(t => t.il2).ToList(), held);
+            var (_, problem) = HotTrack.DestroyObjects(type.Assembly);
+            if (problem != null) left.Add(problem);
         }
 
-        internal static IEnumerable<Type> Types(Assembly asm)
-        {
-            try { return asm.GetTypes(); }
-            catch (ReflectionTypeLoadException e) { return e.Types.Where(t => t != null); }
-        }
+        internal static IEnumerable<Type> Types(Assembly asm) => HotTrack.Types(asm);
     }
 }

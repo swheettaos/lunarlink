@@ -189,7 +189,50 @@ namespace LunarLink
             return l.Count;
         }
 
-        // ---- after a wrapped copy's Unity objects are destroyed ----
+        // ---- a stopped copy's Unity components ----
+
+        // Every component of the copy's own Il2Cpp types, hidden ones too (BasePlugin.AddComponent puts them on BepInEx's
+        // hidden manager object), destroyed; their game objects too when they held only those (not BepInEx's). Destroy,
+        // not DestroyImmediate: this runs inside LunarLink's own Update, on that same manager object, and tearing a
+        // neighbour out mid-Update kills the game. Types are told apart by class pointer: Il2Cpp reflection on an
+        // injected type (Il2CppSystem.Type.FullName) crashes the game. Once Unity has removed them, Frame frees the
+        // bridges Il2CppInterop pinned for the types. Returns how many were destroyed, and what can't be freed.
+        internal static (int count, string problem) DestroyObjects(Assembly asm)
+        {
+            var types = new List<(string name, Il2CppSystem.Type il2, IntPtr cls)>();
+            foreach (var t in Types(asm).Where(t => typeof(UnityEngine.Component).IsAssignableFrom(t)))
+                try
+                {
+                    var cls = Il2CppClassPointerStore.GetNativeClassPointer(t);
+                    if (cls != IntPtr.Zero) types.Add((t.FullName, Il2CppType.From(t), cls));
+                }
+                catch { }
+            if (types.Count == 0) return (0, null);
+            var classes = new HashSet<IntPtr>(types.Select(t => t.cls));
+            var held = new List<nint>();
+            int comps = 0, objects = 0;
+            foreach (var (_, it, _) in types)
+                foreach (var o in UnityEngine.Resources.FindObjectsOfTypeAll(it))
+                {
+                    var c = o.TryCast<UnityEngine.Component>(); if (c == null) continue;
+                    var go = c.gameObject;
+                    bool onlyMine = !go.name.StartsWith("BepInEx", StringComparison.OrdinalIgnoreCase)
+                        && go.GetComponents<UnityEngine.Component>().All(x => x.TryCast<UnityEngine.Transform>() != null || classes.Contains(IL2CPP.il2cpp_object_get_class(x.Pointer)));
+                    held.Add(IL2CPP.il2cpp_gchandle_new(c.Pointer, false));
+                    if (onlyMine) { UnityEngine.Object.Destroy(go); objects++; } else { UnityEngine.Object.Destroy(c); comps++; }
+                }
+            if (comps + objects > 0) Pump.Journal("hot: destroying " + comps + " component(s) and " + objects + " game object(s) of " + string.Join(", ", types.Select(t => t.name)));
+            ReleaseWhenGone(asm, types.Select(t => t.il2).ToList(), held);
+            return (comps + objects, PinProblem != null ? "its Il2Cpp types' bridges can't be freed (" + PinProblem + "): this copy can't leave memory" : null);
+        }
+
+        internal static IEnumerable<Type> Types(Assembly asm)
+        {
+            try { return asm.GetTypes(); }
+            catch (ReflectionTypeLoadException e) { return e.Types.Where(t => t != null); }
+        }
+
+        // ---- after a copy's Unity objects are destroyed ----
 
         // Unity removes destroyed objects at the end of the frame. held: an Il2Cpp GC handle on each destroyed component,
         // so it can't be finalized before Frame lets go of it.

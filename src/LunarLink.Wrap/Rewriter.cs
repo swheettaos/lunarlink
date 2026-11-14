@@ -169,6 +169,17 @@ namespace LunarLink
             var o = new MemoryStream(); m.Write(o); return o.ToArray();
         }
 
+        // A hot plugin's own Il2Cpp types renamed for copy n (Il2Cpp keeps a registered name for good); null when it has
+        // none. Nothing else is touched: a hot plugin undoes what it starts itself.
+        internal static byte[] RenameTypes(byte[] dll, int n)
+        {
+            using var m = ModuleDefinition.ReadModule(new MemoryStream(dll));
+            var injected = m.GetTypes().Where(IsInjected).ToList();
+            if (injected.Count == 0 || n < 2) return null;
+            foreach (var t in injected) t.Name += "_hot" + n;
+            var o = new MemoryStream(); m.Write(o); return o.ToArray();
+        }
+
         // A library other plugins are built against (MoonFramework is the usual one) can't be hot: plugins loaded the
         // normal way can't use code that can be unloaded (.NET refuses), and a reloaded copy would be a different
         // assembly to every plugin built against the old one. Returns the names of the plugins that use it, or null.

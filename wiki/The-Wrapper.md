@@ -65,9 +65,14 @@ To go back: **Disable** it in F9, move it back to `BepInEx/plugins/`, restart.
   again. It starts fresh, like at game start: whatever it kept in memory is gone, its settings file is read again.
 - **A plugin that loads its own content** (asset bundles, as Mars Sweepers does for its planet) sets things up when a
   world loads, which a copy swapped in mid-game would miss: the game then refuses to save. So while a world is loaded,
-  its **Reload waits for the main menu**: the row turns orange ("reloads at main menu") with **Save & main menu**
-  (the game's own save, then back to the menu, where it reloads) and **Cancel**. There's no forcing it. At the main
-  menu, or for any other wrapped plugin, Reload works at once.
+  its **Reload waits for the main menu**: the row turns orange ("reloads at main menu") with **Save & reload** and
+  **Cancel**. Save & reload does the whole round trip in one click: the game's own save, back to the menu, the reload
+  there, then your save loaded again by the menu's own Play (what a click on it runs, so other mods' hooks on it run
+  too). With anyone else in your lobby it's **Save & menu** instead, since leaving the world ends the session for
+  them; pick your save again yourself. There's no forcing a reload mid-world. At the main menu, or for any other
+  wrapped plugin, Reload works at once.
+- **Its choices survive a reload:** its static enum settings (modes and choices, such as Mars Sweepers' MOON / MARS)
+  are carried from the old copy to the new one. Flags and counters start fresh, so it still sets itself up.
 - **A reload that keeps failing is stopped:** for 10 s after any reload, errors from the plugin's code are counted;
   at 20 it's stopped and its row says to restart the game (it stays on, so the next start loads it cleanly).
 - **Disable**: it's turned off and stays off, also at the next start, until you enable it.
@@ -125,9 +130,12 @@ reloads it:
 3. You load the Mars save: the new copy is there from the start, so it sets the planet up as it always does, and
    everything (content, atmosphere, machines, saving) works.
 
-That's why, in a world, a plugin like this shows **reloads at main menu** in F9, with **Save & main menu**: the game's
-own save, then the game's own way back to the menu, where the reload runs. There's deliberately no way to force it
-mid-world, since that ends in a world that can't be saved.
+That's why, in a world, a plugin like this shows **reloads at main menu** in F9, with **Save & reload**: the game's own
+save, the game's own way back to the menu, the reload there, and your save loaded again through the menu's own Play.
+Mars Sweepers hooks that Play to set up its planet session, so loading the save any other way (the start step under
+it) would be stopped by Mars; going through the button you'd click lets it do its part. Tested: click to playing
+again in about 23 seconds. There's deliberately no way to force it mid-world, since that ends in a world that can't be
+saved.
 
 ### Why that's better than restarting the game
 
@@ -135,11 +143,16 @@ mid-world, since that ends in a world that can't be saved.
 |---|---|---|
 | What happens | Only that plugin is swapped; the game keeps running | The whole game closes and starts again |
 | What stays loaded | The game, BepInEx, LunarLink, every other plugin, their state | Nothing |
-| What you wait for | Saving, the menu, then loading your save again | Steam, the game's start-up, BepInEx and every plugin loading, the menu, then loading your save |
-| Typical time | Seconds plus your save's load | Minutes |
+| What you do | One click (**Save & reload**) | Quit, start the game, pick your save |
+| What you wait for | Saving, the menu, then your save loading again | Steam, the game's start-up, BepInEx and every plugin loading, the menu, then your save loading |
+| Typical time | About 25 s with Mars Sweepers | Minutes |
 
 A restart is still needed for LunarLink's own core, and for a plugin that hooks the game natively in a way the
 wrapper can't undo (F9 says **off at restart** for those).
+
+**Better still:** if Mars Sweepers itself became a hot plugin ([Plugins that set up the world](Writing-a-Hot-Plugin#plugins-that-set-up-the-world)),
+it would reload in place mid-game with no menu at all: `StartEarly`, its planet set up in `WorldLoaded()`, and its
+machines' state handed to the new copy.
 
 **Which plugins wait:** only wrapped plugins that load asset bundles, which the wrapper sees as it loads them (F9's **?**
 says so). Every other plugin reloads at once, anywhere, as before. Plugins written for LunarLink (Crew Tools, Quantum

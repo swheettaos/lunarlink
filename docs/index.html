@@ -116,7 +116,7 @@
   <div class="cards">
     <div class="card"><span class="tag">Hot-reload framework</span><h3>Reload without restarting</h3>
       <p>Write new plugins, or convert the ones you have, to a short contract. Rebuild, and the game runs the new code within
-         a frame. Disable one and it's unloaded from memory. The same DLL still ships as a normal BepInEx plugin.</p></div>
+         a frame. Disable one and it's unloaded from memory. Even a plugin that sets up the world (a whole planet) can reload mid-game: it starts before any world, and LunarLink tells it when a world loads. The same DLL still ships as a normal BepInEx plugin.</p></div>
     <div class="card"><span class="tag">HTTP gateway</span><h3>Read and change the game</h3>
       <p>Structures, belts, terrain, capsules, production, power and robots. Build, remove, move the player and the camera,
          check a base's health, host crew games. JSON from a script, a browser or another tool.</p></div>
@@ -127,7 +127,7 @@
       <p>F9's UPDATES tab checks when you ask (or at every game start, if you tick that) and shows a count when something's new: LunarLink's releases, its single modules as built from main, and any plugin
          that names where its builds are (<code>UpdateFeed()</code>, on GitHub or any HTTPS host). SHA-256 checked. Only the
          core ever needs a restart: modules and hot plugins update in place.</p></div>
-    <div class="card"><span class="tag">Wrapper · experimental</span><h3>Your other plugins, hot too</h3><p>Put a normal BepInEx plugin in <code>BepInEx/hot/</code> and LunarLink runs it wrapped: reload it and turn it off while you play. It undoes what the plugin started: patches, threads, hooks, event handlers, Unity objects. MoonFramework must stay in <code>plugins/</code>.</p></div>
+    <div class="card"><span class="tag">Wrapper · experimental</span><h3>Your other plugins, hot too</h3><p>Put a normal BepInEx plugin in <code>BepInEx/hot/</code> and LunarLink runs it wrapped: reload it and turn it off while you play. It undoes what the plugin started: patches, threads, hooks, event handlers, Unity objects, asset bundles. One that builds its own world reloads in one click with <b>Save &amp; reload</b>. MoonFramework must stay in <code>plugins/</code>.</p></div>
     <div class="card"><span class="tag">MCP</span><h3>Ask an AI assistant</h3><p>An MCP server turns every endpoint, plugins' included, into a tool for Claude or any MCP client: "is my base working?", "which catchers are full?". Reads only unless you allow more.</p></div>
     <div class="card"><span class="tag">Performance</span><h3>Find what eats the frame</h3>
       <p>Unity's own counters at almost no cost, stopwatches on any method, a component census, and fps fixes for big

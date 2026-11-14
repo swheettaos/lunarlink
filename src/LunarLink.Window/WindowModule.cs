@@ -65,7 +65,7 @@ namespace LunarLink
 
         internal static void Update()
         {
-            SavedThenMenu();
+            SavedThenMenu(); LoadAgain();
             if (reopenTab >= 0 && layer == null) { tab = reopenTab; reopenTab = -1; Open(); message = "The window reloaded with the new build"; Draw(true); return; }
             var kb = Keyboard.current; if (kb == null) return;
             bool typing = false; try { typing = MoonCleaners.MoonInput.Typing; } catch { }   // not while typing in chat
@@ -215,13 +215,19 @@ namespace LunarLink
                 if (waits)
                 {
                     v.Buttons.Clear();
-                    v.Buttons.Add(("Save & main menu", () => Act(SaveThenMenu), true));
+                    // solo: the whole round trip (save, menu, reload, the same save again); with a crew, leaving the world ends
+                    // the session for everyone, so it stops at the menu
+                    // the game keeps a Steam lobby even solo (invite-only, you the host): a crew is someone else in it
+                    bool crew = false;
+                    try { crew = MoonCleaners.MoonSteamLobby.InLobby && Steamworks.SteamMatchmaking.GetNumLobbyMembers(new Steamworks.CSteamID(MoonCleaners.MoonSteamLobby.LobbyId)) > 1; } catch { }
+                    if (crew) v.Buttons.Add(("Save & menu", () => Act(() => SaveThenMenu(null)), true));
+                    else v.Buttons.Add(("Save & reload", () => Act(() => SaveThenMenu(name)), true));
                     v.Buttons.Add(("Cancel", () => Act(() => Done(Hot.CancelReload(name), "No reload of " + name)), false));
                 }
                 else v.Buttons.Add(("Reload", () => Act(() =>
                 {
                     var pl = Hot.Enable(name, reload: true);
-                    return pl != null && pl.ReloadAtMenu ? name + " " + Hot.WaitReason(pl) + ", so its new copy loads at the main menu (in a world it couldn't save properly). Save & main menu does both for you"
+                    return pl != null && pl.ReloadAtMenu ? name + " " + Hot.WaitReason(pl) + ", so its new copy loads at the main menu (in a world it couldn't save properly). Save & reload does it all and brings you back to this save"
                         : Done(pl, "Reloaded " + name);
                 }), false));
                 list.Add(v);
@@ -367,11 +373,15 @@ namespace LunarLink
             return u;
         }
 
-        // "Save & main menu" on a reload waiting for the main menu: the game's own save (the pause menu's), and once it has
-        // finished, the game's own way back to the menu (MoonSession.ReturnToMenu); the core reloads the plugin there
+        // "Save & reload" / "Save & main menu" on a reload waiting for the main menu: the game's own save (the pause
+        // menu's), and once it has finished, the game's own way back to the menu (MoonSession.ReturnToMenu); the core
+        // reloads the plugin there. With "Save & reload" (solo), once that reload has started cleanly the same save is
+        // loaded again the way a click on it does (the main menu's Play: the active slot, which leaving kept).
         static MoonCleaners.MoonPauseMenu saving; static float savingSince;
-        static string SaveThenMenu()
+        static string reloadThenLoad; static float atMenuSince = -1f;
+        static string SaveThenMenu(string thenLoad)
         {
+            reloadThenLoad = thenLoad; atMenuSince = -1f;
             var found = UnityEngine.Object.FindObjectsOfType(Il2CppInterop.Runtime.Il2CppType.Of<MoonCleaners.MoonPauseMenu>());
             if (found.Length == 0) return "Couldn't find the game's pause menu: save and go to the main menu yourself";
             saving = found[0].Cast<MoonCleaners.MoonPauseMenu>(); savingSince = Time.realtimeSinceStartup;
@@ -387,6 +397,33 @@ namespace LunarLink
             saving = null;
             if (layer != null) Close();
             MoonCleaners.MoonSession.ReturnToMenu();
+        }
+
+        // at the main menu after "Save & reload": once the plugin's new copy runs, its save again
+        static void LoadAgain()
+        {
+            if (reloadThenLoad == null || saving != null) return;
+            bool atMenu = false; try { atMenu = MoonCleaners.MoonSession.InMenu && !Hot.InWorld; } catch { }
+            if (!atMenu) { atMenuSince = -1f; return; }
+            if (atMenuSince < 0f) { atMenuSince = Time.realtimeSinceStartup; return; }
+            if (Time.realtimeSinceStartup - atMenuSince < 1.5f) return;          // the menu settles
+            var p = Hot.Find(reloadThenLoad); var name = reloadThenLoad;
+            // the core reloads it once the menu's own loading screen is gone, which can take a few seconds: wait for that
+            // (up to 30 s), and give up only on a copy that actually failed
+            bool waiting = p != null && p.Error == null && (p.ReloadAtMenu || !p.Running);
+            if (waiting && Time.realtimeSinceStartup - atMenuSince < 30f) return;
+            reloadThenLoad = null;
+            if (p == null || p.ReloadAtMenu || !p.Running || p.Error != null)
+            {
+                Plugin.L.LogWarning("hot window: " + name + " didn't start cleanly at the main menu, so its save wasn't loaded again" + (p?.Error != null ? ": " + p.Error : ""));
+                return;
+            }
+            // the main menu's own Play, as a click on the save does: plugins hook it (Mars Sweepers sets up its planet
+            // session there) - the start step under it (StartShift) would skip them
+            var menus = UnityEngine.Object.FindObjectsOfType(Il2CppInterop.Runtime.Il2CppType.Of<MoonCleaners.MoonMainMenu>());
+            if (menus.Length == 0) { Plugin.L.LogWarning("hot window: no main menu found, so " + name + "'s save wasn't loaded again: pick it yourself"); return; }
+            Plugin.L.LogInfo("hot window: " + name + " reloaded at the main menu; loading the save again");
+            menus[0].Cast<MoonCleaners.MoonMainMenu>().Play();
         }
 
         // a version as shown: "v1.1.0.2", or "dev build"

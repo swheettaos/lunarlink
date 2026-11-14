@@ -109,12 +109,15 @@ method names:
 
 | Method | When | Must |
 |---|---|---|
-| `void Start(string state)` | Loaded, once a moon has loaded | Patch, subscribe, register. `state` is what the previous copy's `Stop()` returned (`null` the first time) |
+| `void Start(string state)` | Loaded, once a moon has loaded (at game start with `StartEarly`) | Patch, subscribe, register. `state` is what the previous copy's `Stop()` returned (`null` the first time) |
 | `string Stop()` | Before it's unloaded | Undo **everything** `Start` did, and return the state for the next copy |
-| `void Update()`, `void LateUpdate()` | Every frame (optional) | A hot plugin has no MonoBehaviour of its own |
+| `void Update()`, `void LateUpdate()` | Every frame (optional) | Per-frame work, without a MonoBehaviour of its own |
 | `string HandleHttp(string method, string path, NameValueCollection query, string body)` | A request no endpoint took (optional) | Answer JSON, or `null` for "not mine" |
 | `string[] HttpHelp()` | For `/help` (optional) | One `"GET /path \| what it does"` per endpoint |
 | `static void Boot()` | Once, at game start (optional) | Register MoonFramework buildings, which it only accepts then |
+| `static bool StartEarly` | Not called: `true` makes `Start` run at game start, before any world (optional) | For a plugin whose patches must be in before a save loads (it changes how worlds are built); `Start` then can't assume a world |
+| `void WorldLoaded()` | Each time a save has finished loading, **and right after `Start` when one already has** (optional) | Set the world up here: a copy reloaded mid-game then sets it up exactly as a fresh load does |
+| `void WorldUnloaded()` | Once the world is gone, at the main menu (optional) | Let go of what `WorldLoaded` set up |
 | `string UpdateFeed()` | When the player checks for updates (optional) | Say where your builds are: `github:you/repo` or any public HTTPS address of an update file; LunarLink offers and installs them ([how](docs/HOT_PLUGINS.md#letting-it-update-itself)) |
 
 ```csharp
@@ -183,6 +186,14 @@ needs can't be turned off) and list every endpoint.
 - A `Start` that throws is unloaded again, its patches and endpoints with it; everything else carries on.
 - A Harmony patch still in after `Stop()` is taken out and reported as a leftover, and the copy's endpoints are removed.
 - A plugin BepInEx already loaded from `BepInEx/plugins/` is refused, so it can't run twice.
+- A plugin's own Unity types (`ClassInjector`) are renamed in each later copy (`WorldMarker_hot2`, done by the
+  LunarLink.Wrap module), anything of them still there after `Stop()` is destroyed, and the old types are freed.
+- A copy that keeps throwing right after a reload (20 errors from its code within 10 s) is stopped, with "restart the
+  game" on its row, instead of throwing every frame.
+
+A plugin that sets up the world, as Mars Sweepers does with its planet, can reload mid-game with `StartEarly`,
+`WorldLoaded()` and its state handed over: see [Plugins that set up the world](docs/HOT_PLUGINS.md#plugins-that-set-up-the-world)
+and `samples/WorldHot`.
 
 A hot plugin runs with the same rights as any BepInEx plugin: **there is no sandbox**. Only enable DLLs you trust.
 How it's built, and why: [docs/HOT_RELOAD_PLAN.md](docs/HOT_RELOAD_PLAN.md).
@@ -214,6 +225,14 @@ How it works, in short:
    plugin, its Harmony patches and endpoints taken out and its context dropped. Once Unity has removed its objects,
    the handles they held on its code are let go and the bridges Il2CppInterop pinned for its types are freed, so the
    copy can leave memory.
+
+Reloading one: its asset bundles are unloaded when it stops, so the new copy can load them again, and its choices
+(static enum settings, such as Mars Sweepers' MOON / MARS) are carried to the new copy. A plugin that loads its own
+content sets the world up as a save loads, which a copy swapped in mid-game would miss (the game then won't save), so
+while a world is loaded its Reload **waits for the main menu**: F9's **Save & reload** does the round trip in one
+click (the game's own save, back to the menu, the reload, then your save loaded again through the menu's own Play;
+about 25 s with Mars Sweepers). With anyone else in your lobby it's **Save & menu**, since leaving ends the session for
+them. Every other wrapped plugin reloads at once, anywhere.
 
 It can't undo what a plugin *changed* (as opposed to what it started), native hooks made outside BepInEx and MonoMod
 (those plugins turn off at the next start: **off at restart**), or long-running tasks. A plugin that Harmony-patches

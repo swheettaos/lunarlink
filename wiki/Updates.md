@@ -15,7 +15,7 @@ is checked against a SHA-256 first.
 
 | Row | Where it comes from | Installing it |
 |---|---|---|
-| **LunarLink x.y.z** | The latest [release](https://github.com/swheettaos/lunarlink/releases/latest) | If the core is unchanged, its modules reload in place. If the core changed, it's put in place for the next start: the row says **restart to finish** |
+| **LunarLink x.y.z** | The latest [release](https://github.com/swheettaos/lunarlink/releases/latest) | If the core is unchanged, its modules reload in place. If the core changed, it's put in place for the next start: the row says **restart to finish**, and nothing more can be checked or installed until you restart (`POST /update/check` and `/update/apply` say so; `GET /update` has `restartPending` and `loaded`, the core in memory) |
 | **LunarLink.Api**, **.Perf**, **.Window**, **.Update** | The **module channel**: each module as built from `main`, between releases | It reloads in place, no restart. A module built for a newer core says **needs a newer core** and comes with the next release |
 | **A plugin** | Wherever its `UpdateFeed()` says: a GitHub repo's releases, or any public HTTPS address | A hot plugin reloads in place; a normal plugin's DLL is swapped for the next start |
 

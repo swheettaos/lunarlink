@@ -37,6 +37,8 @@ namespace LunarLink
             return bytes;
         }
 
+        public byte[] RenameTypes(byte[] dll, int n) => Rewriter.RenameTypes(dll, n);
+
         public object Adapt(Assembly asm, string file, int track)
         {
             var t = Adapter.Types(asm).FirstOrDefault(x => x.IsClass && !x.IsAbstract && typeof(BasePlugin).IsAssignableFrom(x)

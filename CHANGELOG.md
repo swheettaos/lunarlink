@@ -3,6 +3,23 @@
 Each release's section is its notes on the GitHub releases page (`tools/release.sh` copies it there). Only a release that
 changes the core needs a game restart; modules and hot plugins always update in place.
 
+## Unreleased
+
+- **Hot plugins can set up the world, like Mars Sweepers does,** and still reload mid-game (needs a restart once, for
+  the core):
+  - `static bool StartEarly => true` starts a hot plugin at game start, where BepInEx starts normal plugins, before any
+    world, so its patches on world loading are in before a save loads.
+  - `WorldLoaded()` is called each time a world has finished loading, and right after `Start()` when one is already
+    loaded, so a copy reloaded mid-game sets the world up the way a fresh load does; `WorldUnloaded()` once it's gone.
+  - A hot plugin may have **its own Unity types**: each later copy's are renamed (`WorldMarker_hot2`) by the Wrap
+    module, anything of them left after `Stop()` is destroyed, and the old types are freed.
+  - `samples/WorldHot` shows all three; the guide has a new section, *Plugins that set up the world*.
+- **Save & reload:** a wrapped plugin waiting for the main menu (Mars Sweepers) reloads in one click: the game's own
+  save, back to the menu, the reload, and your save loaded again through the menu's own Play. Solo only; with anyone
+  else in your lobby it's **Save & menu**. (The game always keeps a Steam lobby, so "solo" means nobody else in it.)
+- **A wrapped plugin's choices survive a reload:** its static enum settings (modes and choices) are carried to the new
+  copy.
+
 ## 1.2.0
 
 - **Normal BepInEx plugins can go in `BepInEx/hot/` (experimental):** a plugin not written for LunarLink runs *wrapped* by the new
