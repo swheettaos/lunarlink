@@ -47,7 +47,6 @@ In `BepInEx/plugins/LunarLink/`:
 | `installed-version` | The stamp of the build `build.sh --install` put in |
 | `requests.log`, `requests.log.1` | Every request as it starts and finishes, and the stuck-frame report (see [[Troubleshooting]]) |
 | `power_fix.txt`, `offer_backoff.txt`, `audio_far.txt` | The fps fixes' settings (see [[Performance Tools]]) |
-| `framework-backups/` | MoonFramework's per-save file, copied at every game start, the last 20 kept |
 | `dust_geometry.json`, `chunk_names.txt` | Written and read by `GET /dust/geometry` |
 
 In `BepInEx/hot/`, `hot.json` remembers which hot plugins are on (`enabled`) and which you turned off (`disabled`).

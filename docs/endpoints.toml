@@ -648,16 +648,6 @@ notes = [
   "`count`: regions on the moon; `left`: regions not complete.",
 ]
 
-["/game/backup"]
-about = "The last backup of MoonFramework's per-save file, which LunarLink copies once at every game start (the last 20 kept, in `BepInEx/plugins/LunarLink/framework-backups/`)."
-use = "Check that LunarLink backed up MoonFramework's per-save file at this start (it keeps the last 20), before trying something risky."
-example = "GET /game/backup"
-answer = '''
-{
- "last": "1 slot file(s) backed up"
-}
-'''
-
 ["/game/money"]
 about = "The team's money."
 use = "Read the team's money from a script, for example to stop a build script before it runs out."

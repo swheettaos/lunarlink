@@ -3,6 +3,12 @@
 Each release's section is its notes on the GitHub releases page (`tools/release.sh` copies it there). Only a release that
 changes the core needs a game restart; modules and hot plugins always update in place.
 
+## Unreleased
+
+- **Removed the MoonFramework backup** (`GET /game/backup` and the `framework-backups/` folder): LunarLink doesn't
+  need MoonFramework, so it no longer copies MoonFramework's per-save file at game start. Copies already made stay
+  where they are; delete `BepInEx/plugins/LunarLink/framework-backups/` if you don't want them.
+
 ## 1.0.0
 
 - **An MCP server** (`mcp/`), so an AI assistant (Claude Desktop, Claude Code, any MCP client) can use the running

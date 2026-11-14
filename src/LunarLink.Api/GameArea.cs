@@ -1,14 +1,12 @@
 namespace LunarLink
 {
-    // The session itself: the team's money, the process's threads, and once the game has loaded, MoonFramework's per-save file is backed up (FrameworkBackup).
+    // The session itself: the team's money and the process's threads.
     static class GameArea
     {
         internal static void Start(string state)
         {
-            if (state == null) FrameworkBackup.Run();       // once per game start, not on every reload
             Api.Get("/game/money", "The team's money", r => Money(Api.World));
             Api.Get("/debug/threads", "Every thread of the game's process: id, state, CPU seconds, when it started (for a hang)", r => Threads());
-            Api.Get("/game/backup", "The last MoonFramework file backup: how many save slots were copied", r => "{\"last\":" + J.S(FrameworkBackup.Last) + "}");
         }
 
 

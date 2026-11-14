@@ -363,13 +363,12 @@ The player and the screen: where the player is and moving them, the observer cam
 
 ### Game (LunarLink.Api)
 
-The session itself: the team's money, the process's threads, and once the game has loaded, MoonFramework's per-save file is backed up (FrameworkBackup).
+The session itself: the team's money and the process's threads.
 
 | Endpoint | What it does |
 |---|---|
 | `GET /game/money` | The team's money |
 | `GET /debug/threads` | Every thread of the game's process: id, state, CPU seconds, when it started (for a hang) |
-| `GET /game/backup` | The last MoonFramework file backup: how many save slots were copied |
 
 ### Host (LunarLink.Api)
 
@@ -443,9 +442,6 @@ Updating LunarLink from GitHub's releases and the module channel, when asked (or
 
 **Removing**, one structure at a time with a gap of about 0.25 s: a structure removal costs the game about 15 ms if the
 last one was 0.25 s earlier, but 100-130 ms straight after another, so removing many in one go freezes the game.
-
-**FrameworkBackup** (the Game area) copies MoonFramework's `moonframework.json` from each save slot into
-`plugins/LunarLink/framework-backups/` once per game start, last 20 kept, so a wiped file is a one-file restore.
 
 **The fixes** (the Perf module) keep their settings in small files in `plugins/LunarLink/` (`power_fix.txt`,
 `offer_backoff.txt`, `audio_far.txt`) and go in when the module starts, each only when its setting asks for it.
