@@ -16,7 +16,7 @@ namespace WorldHot
 {
     public class Main
     {
-        public static bool StartEarly => true;          // start before any world (LunarLink 1.3+)
+        public static bool StartEarly => true;          // start before any world (LunarLink 1.3.0 and later)
 
         int starts, worldsLoaded, worldsGone; string startedWhere;
         GameObject marker;                              // what it adds to a world

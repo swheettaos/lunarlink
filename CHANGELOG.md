@@ -3,7 +3,7 @@
 Each release's section is its notes on the GitHub releases page (`tools/release.sh` copies it there). Only a release that
 changes the core needs a game restart; modules and hot plugins always update in place.
 
-## Unreleased
+## 1.3.0
 
 - **Hot plugins can set up the world, like Mars Sweepers does,** and still reload mid-game (needs a restart once, for
   the core):
