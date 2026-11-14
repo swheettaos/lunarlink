@@ -201,7 +201,7 @@ namespace LunarLink
             {
                 var v = new View { Name = r.Name, State = r.State, StateColour = StateColour(r.State),
                     Detail = r.Error != null ? "<color=#E6524A>" + Short(r.Error) + "</color>"
-                        : (r.Built != null ? "built " + r.Built : "") + (r.Newer ? "   <color=#FF7A2E>newer build on disk</color>" : "") + (r.NeedsRestart ? "   restart to register buildings" : "") };
+                        : (FileVersion(r.Name) is string fv ? V(fv) + "   ·   " : "") + (r.Built != null ? "built " + r.Built : "") + (r.Newer ? "   <color=#FF7A2E>newer build on disk</color>" : "") + (r.NeedsRestart ? "   restart to register buildings" : "") };
                 bool off = r.State == "disabled"; var name = r.Name;
                 v.Buttons.Add((off ? "Enable" : "Disable", () => Act(() => off ? Done(Hot.Enable(name, reload: false), "Enabled " + name) : Done(Hot.Disable(name), "Disabled " + name)), off));
                 v.Buttons.Add(("Reload", () => Act(() => Done(Hot.Enable(name, reload: true), "Reloaded " + name)), false));
@@ -324,7 +324,7 @@ namespace LunarLink
             public bool on, busy, auto; public string running, state, latest, detail, error;
             // how many things have an update: the release, modules, plugins (the UPDATES tab's marker)
             public int Waiting => (state == "available" ? 1 : 0) + modules.Count(m => m.state == "available") + plugins.Count(p => p.state == "available");
-            public List<(string name, string state, string note, string built, string error)> modules = new List<(string, string, string, string, string)>();
+            public List<(string name, string state, string note, string built, string error, string version, string installed)> modules = new List<(string, string, string, string, string, string, string)>();
             public List<(string name, string kind, string version, string latest, string state, string from, string notes, string error)> plugins = new List<(string, string, string, string, string, string, string, string)>();
         }
         static UpdateInfo ReadUpdates()
@@ -337,7 +337,7 @@ namespace LunarLink
                 string S(System.Text.Json.JsonElement e, string k) => e.TryGetProperty(k, out var x) && x.ValueKind == System.Text.Json.JsonValueKind.String ? x.GetString() : null;
                 u.on = true; u.auto = r.TryGetProperty("autoCheck", out var ac) && ac.ValueKind == System.Text.Json.JsonValueKind.True; u.running = S(r, "running"); u.state = S(r, "state"); u.latest = S(r, "latest"); u.detail = S(r, "detail"); u.error = S(r, "error");
                 foreach (var m in r.GetProperty("channel").GetProperty("modules").EnumerateArray())
-                    u.modules.Add((S(m, "name"), S(m, "state"), S(m, "note"), S(m, "built"), S(m, "error")));
+                    u.modules.Add((S(m, "name"), S(m, "state"), S(m, "note"), S(m, "built"), S(m, "error"), S(m, "version"), S(m, "installed")));
                 if (r.TryGetProperty("plugins", out var ps))
                     foreach (var p in ps.EnumerateArray())
                         u.plugins.Add((S(p, "name"), S(p, "kind"), S(p, "version"), S(p, "latest"), S(p, "state"), S(p, "from"), S(p, "notes"), S(p, "error")));
@@ -346,6 +346,24 @@ namespace LunarLink
             }
             catch (Exception e) { u.on = true; u.error = "couldn't read the updater: " + e.Message; }
             return u;
+        }
+
+        // a version as shown: "v1.1.0.2", or "dev build"
+        static string V(string v) => v == "dev" ? "dev build" : "v" + v;
+        // a hot plugin's version from its file's assembly version ("dev" for a module built here), kept until the file changes
+        static readonly Dictionary<string, (DateTime at, string v)> versions = new Dictionary<string, (DateTime, string)>();
+        static string FileVersion(string name)
+        {
+            try
+            {
+                var f = Hot.FileOf(name); if (!System.IO.File.Exists(f)) return null;
+                var at = System.IO.File.GetLastWriteTimeUtc(f);
+                if (versions.TryGetValue(name, out var seen) && seen.at == at) return seen.v;
+                var v = System.Reflection.AssemblyName.GetAssemblyName(f).Version;
+                var s = v == null || v == new Version(1, 0, 0, 0) ? null : v == new Version(0, 0, 0, 0) ? "dev" : v.Revision > 0 ? v.ToString(4) : v.ToString(3);   // 1.0.0.0: .NET's default, no version
+                versions[name] = (at, s); return s;
+            }
+            catch { return null; }
         }
 
         // The UPDATES tab: LunarLink's release first (its version, where an update stands, the button for the next step),
@@ -380,7 +398,7 @@ namespace LunarLink
                 var r = new View { Name = m.name };
                 switch (m.state)
                 {
-                    case "available": r.State = "newer build"; r.StateColour = Accent; break;
+                    case "available": r.State = m.version != null ? m.version + " available" : "newer build"; r.StateColour = Accent; break;
                     case "needs core": r.State = "needs a newer core"; r.StateColour = Dim; break;
                     case "updated": r.State = "updated"; r.StateColour = Green; break;
                     case "up to date": r.State = "up to date"; r.StateColour = Green; break;
@@ -389,7 +407,7 @@ namespace LunarLink
                 }
                 r.Detail = m.error != null ? "<color=#E6524A>" + Short(m.error) + "</color>"
                          : m.state == "needs core" ? "Built for a newer LunarLink core: it comes with the next LunarLink release (one restart)"
-                         : (m.note != null ? Short(m.note) : "") + (m.built != null ? "   ·   built " + m.built : "");
+                         : (m.installed != null ? (m.state == "available" ? "you have " : "") + V(m.installed) + "   ·   " : "") + (m.note != null ? Short(m.note) : "") + (m.built != null ? "   ·   built " + m.built : "");
                 var name = m.name;
                 if (m.state == "available") r.Buttons.Add(("Update", () => Act(() => { Updates.Apply?.Invoke(name); return "Updating " + name + "..."; }), true));
                 rows.Add(r);

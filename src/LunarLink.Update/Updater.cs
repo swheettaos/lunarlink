@@ -89,7 +89,7 @@ namespace LunarLink
         // a module in the channel, and where its update stands
         internal sealed class Module
         {
-            public string Name, SourceHash, Sha256, Url, Note, Built, Commit, Error;
+            public string Name, Version, SourceHash, Sha256, Url, Note, Built, Commit, Error;
             public long Size;
             public string State;     // up to date, available, needs core (built for another core), downloading, reloading, updated, failed
         }
@@ -132,8 +132,28 @@ namespace LunarLink
                     + ",\"size\":" + size + ",\"coreChanged\":" + (coreChanged == null ? "null" : coreChanged.Value ? "true" : "false")
                     + ",\"detail\":" + J.S(detail) + ",\"error\":" + J.S(error) + ",\"notes\":" + J.S(notes)
                     + ",\"channel\":{\"error\":" + J.S(channelError) + ",\"published\":" + J.S(channelModified) + ",\"modules\":[" + string.Join(",", modules.Select(m =>
-                        "{\"name\":" + J.S(m.Name) + ",\"state\":" + J.S(m.State) + ",\"note\":" + J.S(m.Note) + ",\"built\":" + J.S(m.Built)
+                        "{\"name\":" + J.S(m.Name) + ",\"version\":" + J.S(m.Version) + ",\"installed\":" + J.S(Installed(m.Name)) + ",\"state\":" + J.S(m.State) + ",\"note\":" + J.S(m.Note) + ",\"built\":" + J.S(m.Built)
                         + ",\"commit\":" + J.S(m.Commit) + ",\"size\":" + m.Size + ",\"error\":" + J.S(m.Error) + "}")) + "]},\"plugins\":" + PluginUpdates.Json() + "}";
+        }
+
+        // a module's version as installed in BepInEx/hot/: its assembly version ("dev" for a local build), read from the
+        // file and kept until the file changes
+        static readonly Dictionary<string, (DateTime at, string v)> installedSeen = new Dictionary<string, (DateTime, string)>();
+        internal static string Installed(string name)
+        {
+            try
+            {
+                var f = Hot.FileOf(name); if (!File.Exists(f)) return null;
+                var at = File.GetLastWriteTimeUtc(f);
+                lock (installedSeen)
+                {
+                    if (installedSeen.TryGetValue(name, out var seen) && seen.at == at) return seen.v;
+                    var v = System.Reflection.AssemblyName.GetAssemblyName(f).Version;
+                    var s = v == null || v == new Version(1, 0, 0, 0) ? null : v == new Version(0, 0, 0, 0) ? "dev" : v.Revision > 0 ? v.ToString(4) : v.ToString(3);   // 1.0.0.0: built before modules had versions
+                    installedSeen[name] = (at, s); return s;
+                }
+            }
+            catch { return null; }
         }
 
         internal static bool Busy
@@ -216,7 +236,7 @@ namespace LunarLink
                 foreach (var p in r.GetProperty("modules").EnumerateObject())
                 {
                     var e = p.Value; string Str(string k) => e.TryGetProperty(k, out var x) && x.ValueKind == JsonValueKind.String ? x.GetString() : null;
-                    var m = new Module { Name = p.Name, SourceHash = Str("sourceHash"), Sha256 = Str("sha256"), Url = Str("url"), Note = Str("note"),
+                    var m = new Module { Name = p.Name, Version = Str("version"), SourceHash = Str("sourceHash"), Sha256 = Str("sha256"), Url = Str("url"), Note = Str("note"),
                                          Built = Str("built"), Commit = Str("commit"), Size = e.TryGetProperty("size", out var sz) ? sz.GetInt64() : 0 };
                     m.State = core != installed.core ? "needs core"
                             : installed.modules.TryGetValue(m.Name, out var have) && have == m.SourceHash ? "up to date" : "available";

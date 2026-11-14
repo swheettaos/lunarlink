@@ -15,8 +15,9 @@ DOTNET="${DOTNET:-$HOME/.dotnet/dotnet}"; [ -x "$DOTNET" ] || DOTNET=dotnet   # 
 V="${STAMP:-$(date "+%Y-%m-%d %H:%M:%S")}"          # tools/release.sh sets STAMP to "<version> (<time>)"
 MODULES=$(cd src && ls -d LunarLink.*/ | tr -d / | sed 's/^LunarLink\.//')
 
-build() {   # build <project dir>
-    local out; out=$("$DOTNET" build "$1" -c Release "-p:InformationalVersion=$V" "-p:GameDir=$GAME" 2>&1) || true   # reported here, not by set -e
+build() {   # build <project dir> [module version]: a module's version goes in its assembly version, never the core's
+    local extra=(); [ -n "$2" ] && extra=("-p:AssemblyVersion=$2" "-p:FileVersion=$2")   # (modules reference the core by its version)
+    local out; out=$("$DOTNET" build "$1" -c Release "-p:InformationalVersion=$V" "-p:GameDir=$GAME" "${extra[@]}" 2>&1) || true   # reported here, not by set -e
     echo "$out" | grep -q "Build succeeded" && ! echo "$out" | grep -q " error " && return 0
     echo "$out" | grep -E " error " | sed 's/ \[.*//' | sort -u; echo "build FAILED: $1"; exit 1
 }
@@ -31,7 +32,7 @@ if [ "$1" = "--hot" ]; then
     if [ -n "$N" ] && [ -d "src/LunarLink.$N" ]; then P="src/LunarLink.$N"; A="LunarLink.$N"
     elif [ -n "$N" ] && [ -d "samples/$N" ]; then P="samples/$N"; A="$N"
     else echo "usage: ./build.sh --hot <Name>   modules: $(echo $MODULES)   samples: $(ls samples 2>/dev/null | tr '\n' ' ')"; exit 1; fi
-    build "$P"; copy_hot "$P" "$A"; echo "built and copied $A ($V)"
+    [ "$P" = "src/$A" ] && build "$P" 0.0.0.0 || build "$P"; copy_hot "$P" "$A"; echo "built and copied $A ($V)"   # a module built here is "dev"
     if running; then curl -s -m 30 -X POST "127.0.0.1:8765/hot/reload?name=$A"; echo; else echo "(game not answering: it loads at the next start)"; fi
     exit 0
 fi
@@ -44,8 +45,32 @@ build src/LunarLink
 fingerprint() { (cat Directory.Build.props; find "$1" -type f -not -path '*/bin/*' -not -path '*/obj/*' | LC_ALL=C sort | xargs cat) | grep -v 'BepInPlugin("lunarlink"' | sha256sum | cut -c1-64; }
 CORE_VERSION=$(grep -o 'BepInPlugin("lunarlink", "LunarLink", "[^"]*")' src/LunarLink/Server.cs | grep -o '[0-9][0-9.]*')
 MODS_JSON=$(for m in $MODULES; do printf '"LunarLink.%s": "%s", ' "$m" "$(fingerprint "src/LunarLink.$m")"; done | sed 's/, $//')
-printf '{"version": "%s", "coreHash": "%s", "modules": {%s}}\n' "$CORE_VERSION" "$(fingerprint src/LunarLink)" "$MODS_JSON" > src/LunarLink/bin/Release/net6.0/manifest.json
-for m in $MODULES; do build "src/LunarLink.$m"; done
+CORE_HASH=$(fingerprint src/LunarLink)
+# each module's version (its assembly version, which F9 and the updater show):
+#   a release (tools/release.sh sets STAMP "<x.y.z> (<time>)")  every module is x.y.z
+#   CI, with the module channel's modules.json in CHANNEL_JSON   a module the channel has from the same source keeps its
+#       version; a changed one counts up from the core's version: x.y.z, then x.y.z.1, x.y.z.2 ...
+#   a build here                                                 0.0.0.0, shown as "dev"
+VERSIONS_JSON=$(python3 - "$CORE_VERSION" "$CORE_HASH" "${STAMP:-}" "${CHANNEL_JSON:-}" "{$MODS_JSON}" <<'PY'
+import json, re, sys
+base, core, stamp, chan, mods = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], json.loads(sys.argv[5])
+rel = re.match(r"^(\d+\.\d+\.\d+) \(", stamp)
+old = json.load(open(chan)) if chan else None
+out = {}
+for name, src in mods.items():
+    if rel: out[name] = rel.group(1); continue
+    if old is None: out[name] = "0.0.0.0"; continue
+    prev = old.get("modules", {}).get(name) or {}; pv = prev.get("version")
+    if prev.get("sourceHash") == src and old.get("coreHash") == core: out[name] = pv or base; continue
+    if prev and not pv: pv = base             # listed before modules had versions
+    if pv and (pv == base or pv.startswith(base + ".")):
+        parts = pv.split("."); out[name] = base + "." + str((int(parts[3]) if len(parts) == 4 else 0) + 1)
+    else: out[name] = base
+print(json.dumps(out))
+PY
+)
+printf '{"version": "%s", "coreHash": "%s", "modules": {%s}, "moduleVersions": %s}\n' "$CORE_VERSION" "$CORE_HASH" "$MODS_JSON" "$VERSIONS_JSON" > src/LunarLink/bin/Release/net6.0/manifest.json
+for m in $MODULES; do build "src/LunarLink.$m" "$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])[sys.argv[2]])' "$VERSIONS_JSON" "LunarLink.$m")"; done
 echo "built the core and $(echo $MODULES | wc -w) modules ($V)"
 [ "$1" = "--install" ] || exit 0
 

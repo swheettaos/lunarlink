@@ -7,7 +7,8 @@
 # or when the core it's built against changed (modules use the core's internals). Its DLL is uploaded first, then
 # modules.json, which lists every module with its fingerprint, SHA-256, size, build time, commit and that commit's
 # subject, and the core fingerprint they all need:
-#   {"coreHash": "...", "modules": {"LunarLink.Api": {"sourceHash", "sha256", "size", "built", "commit", "note", "url"}}}
+#   {"coreHash": "...", "modules": {"LunarLink.Api": {"version", "sourceHash", "sha256", "size", "built", "commit", "note", "url"}}}
+# Each module's version is the one build.sh gave it (manifest.json's moduleVersions; CI passes it the channel's list).
 # A download caught between the two fails its SHA-256 check and is simply offered again.
 set -e
 cd "$(dirname "$0")/.."
@@ -34,13 +35,14 @@ feed = {"coreHash": m["coreHash"], "modules": {}}
 upload = []
 for name, src in m["modules"].items():
     prev = old.get("modules", {}).get(name)
+    version = m.get("moduleVersions", {}).get(name)
     if prev and prev.get("sourceHash") == src and not core_changed:
-        feed["modules"][name] = prev; continue
+        feed["modules"][name] = dict(prev, version=prev.get("version") or version); continue
     dll = f"src/{name}/bin/Release/net6.0/{name}.dll"
     data = open(dll, "rb").read()
     git = lambda *a: subprocess.run(["git", *a], capture_output=True, text=True).stdout.strip()
     commit = git("log", "-1", "--format=%H", "--", f"src/{name}", "Directory.Build.props") or git("rev-parse", "HEAD")
-    feed["modules"][name] = {"sourceHash": src, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data),
+    feed["modules"][name] = {"version": version, "sourceHash": src, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data),
         "built": time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()) + " UTC", "commit": commit[:12],
         "note": git("log", "-1", "--format=%s", commit),
         "url": f"https://github.com/{repo}/releases/download/{tag}/{name}.dll"}
@@ -50,8 +52,9 @@ open(os.path.join(work, "upload.txt"), "w").write("\n".join(upload))
 print(("core changed: every module is rebuilt for it\n" if core_changed and old.get("coreHash") else "") +
       (f"publishing {', '.join(os.path.basename(u)[:-4] for u in upload)}" if upload else "no module changed"))
 EOF
-[ -s "$WORK/upload.txt" ] || exit 0
-xargs -a "$WORK/upload.txt" gh release upload "$TAG" -R "$REPO" --clobber
+if [ -s "$WORK/upload.txt" ]; then xargs -a "$WORK/upload.txt" gh release upload "$TAG" -R "$REPO" --clobber
+elif cmp -s <(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])), sort_keys=True))' "$WORK/modules.json") \
+            <(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])), sort_keys=True))' "$WORK/modules.new.json"); then exit 0; fi
 cp "$WORK/modules.new.json" "$WORK/modules.json"
 gh release upload "$TAG" -R "$REPO" --clobber "$WORK/modules.json"
 echo "published to https://github.com/$REPO/releases/tag/$TAG"
