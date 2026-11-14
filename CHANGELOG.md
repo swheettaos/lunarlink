@@ -23,8 +23,8 @@ changes the core needs a game restart; modules and hot plugins always update in 
   saves the game's own way and goes there), since a copy swapped in mid-world can't save the world it didn't set up.
 - **A reload that keeps failing is stopped:** errors from a plugin's code in the 10 s after its reload are counted, and
   at 20 it's stopped with "restart the game" on its row, instead of throwing every frame.
-- **Modules have version numbers:** a release's modules carry its number (1.1.0), and each later build on the module
-  channel counts up from it (1.1.0.1, 1.1.0.2...). F9 shows them on HOT PLUGINS, and UPDATES says which is available
+- **Modules have version numbers:** a release's modules carry its number (1.2.0), and each later build on the module
+  channel counts up from it (1.2.0.1, 1.2.0.2...); the next release starts them all again at its own number. F9 shows them on HOT PLUGINS, and UPDATES says which is available
   and which you have; `GET /update` lists both (`version`, `installed`), and so does the channel's `modules.json`.
   A module built before versions is offered once more so it gets its number.
 - **`POST /game/money/modify?add=` or `?set=`:** change the team's money (the host only, in a crew game; logged). It
