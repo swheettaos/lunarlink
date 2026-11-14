@@ -110,4 +110,5 @@ same `/help` list.
 - Reads are `GET`; anything that changes the game is `POST` and needs an `allow-writes` file, so nothing changes the
   game by accident.
 - `GET /help` (or `/help.html` in a browser) lists every endpoint there is right now, plugins' included.
+- Download it from [Nexus Mods](https://www.nexusmods.com/moonsweepers/mods/158) or the [latest release](https://github.com/swheettaos/lunarlink/releases/latest).
 - Licensed under the [GPL-3.0](https://github.com/swheettaos/lunarlink/blob/main/LICENSE).

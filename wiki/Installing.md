@@ -9,7 +9,7 @@
 
 ## From a release
 
-1. Download `LunarLink-<version>.zip` from the [latest release](https://github.com/swheettaos/lunarlink/releases/latest).
+1. Download `LunarLink-<version>.zip` from [Nexus Mods](https://www.nexusmods.com/moonsweepers/mods/158) or the [latest release](https://github.com/swheettaos/lunarlink/releases/latest).
 2. Close the game and unzip it into the game's folder, the one that holds `BepInEx/`. It adds
    `BepInEx/plugins/LunarLink/` (the core) and `BepInEx/hot/` (the modules).
 3. Start the game.

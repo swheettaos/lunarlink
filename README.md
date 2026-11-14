@@ -25,7 +25,7 @@ plugin.
   host crew games and measure performance. Every one of those endpoints is itself a hot plugin, and any plugin can add
   its own. An [MCP server](mcp/README.md) lets an AI assistant use it.
 
-[Download](https://github.com/swheettaos/lunarlink/releases/latest) · [Docs site](https://swheettaos.github.io/lunarlink/) · [API reference](https://swheettaos.github.io/lunarlink/api.html) ·
+[Download](https://github.com/swheettaos/lunarlink/releases/latest) · [Nexus Mods](https://www.nexusmods.com/moonsweepers/mods/158) · [Docs site](https://swheettaos.github.io/lunarlink/) · [API reference](https://swheettaos.github.io/lunarlink/api.html) ·
 [Wiki](https://github.com/swheettaos/lunarlink/wiki) · [Writing a hot plugin](docs/HOT_PLUGINS.md)
 
 ## How it fits together
@@ -235,7 +235,7 @@ finishes, and a watcher thread writes **`MAIN THREAD STUCK`** with the last 400 
 
 ## Install
 
-**From a release:** download `LunarLink-<version>.zip` from the [latest release](https://github.com/swheettaos/lunarlink/releases/latest), close the game and unzip it
+**From a release:** download `LunarLink-<version>.zip` from [Nexus Mods](https://www.nexusmods.com/moonsweepers/mods/158) or the [latest release](https://github.com/swheettaos/lunarlink/releases/latest), close the game and unzip it
 into the game's folder (the one that holds `BepInEx/`). Needs only BepInEx 6 (IL2CPP); MoonFramework is optional: LunarLink uses it only for Perf's power fix and for plugins that add buildings.
 
 **Updating from the game:** F9's UPDATES tab has **Check for updates**, which asks GitHub for the latest release and
