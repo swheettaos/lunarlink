@@ -648,6 +648,31 @@ notes = [
   "`count`: regions on the moon; `left`: regions not complete.",
 ]
 
+["/game/money/modify"]
+about = "Change the team's money: add to it (or take from it) or set it. In a crew game only the host can. Every change is logged."
+use = "Give yourself money for building on your own save, or set it back after a test."
+params = [
+  ["add", "number", "", "Dollars to add; negative takes money away"],
+  ["set", "number", "", "The money to have, in dollars (give add or set, not both)"],
+]
+example = "POST /game/money/modify?add=100000"
+answer = '''
+{
+ "ok": true,
+ "before": 1250000.5,
+ "after": 1350000.5,
+ "change": 100000
+}
+'''
+errors = [
+  "`{\"ok\":false,\"reason\":\"in a crew game only the host can change the team's money\"}`",
+  "`{\"ok\":false,\"reason\":\"the money would be -5 (it must stay between 0 and 1,000,000,000,000)\"}`",
+]
+notes = [
+  "It goes through the game's own wallet, as its payments do, so the money shows at once and other mods see the change: Crew Tools logs it as the host's own (`CrewPermissions.money.log`), not as cheating.",
+  "Each change is written to the BepInEx log and LunarLink's journal (`money changed by the API: ...`). Needs the allow-writes file.",
+]
+
 ["/game/money"]
 about = "The team's money."
 use = "Read the team's money from a script, for example to stop a build script before it runs out."

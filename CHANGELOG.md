@@ -10,6 +10,8 @@ changes the core needs a game restart; modules and hot plugins always update in 
   and which you have; `GET /update` lists both (`version`, `installed`), and so does the channel's `modules.json`.
   A module whose number is newer than yours is offered even when its code is the same (so one built before versions
   gets its number).
+- **`POST /game/money/modify?add=` or `?set=`:** change the team's money (the host only, in a crew game; logged). It
+  goes through the game's own wallet, so Crew Tools logs it as the host's own change, not as cheating.
 - **F9 shows every hot plugin's version**, not only LunarLink's modules: the one in its `[BepInPlugin]` (Crew Tools
   v1.2.4, Who Left The Light On? v0.1.1).
 - **The F9 window stays open through an update:** an update that reloads the window module (or any reload of it) used

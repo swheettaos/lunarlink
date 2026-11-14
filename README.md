@@ -371,11 +371,12 @@ The player and the screen: where the player is and moving them, the observer cam
 
 ### Game (LunarLink.Api)
 
-The session itself: the team's money and the process's threads.
+The session itself: the team's money (read, or changed by the host) and the process's threads.
 
 | Endpoint | What it does |
 |---|---|
 | `GET /game/money` | The team's money |
+| `POST /game/money/modify` | ?add=<dollars> (may be negative) or ?set=<dollars> : change the team's money (the host only, in a crew game); logged |
 | `GET /debug/threads` | Every thread of the game's process: id, state, CPU seconds, when it started (for a hang) |
 
 ### Host (LunarLink.Api)
