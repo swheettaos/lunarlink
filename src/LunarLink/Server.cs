@@ -20,7 +20,7 @@ using UnityEngine;
 
 namespace LunarLink
 {
-    [BepInPlugin("lunarlink", "LunarLink", "1.0.0")]
+    [BepInPlugin("lunarlink", "LunarLink", "1.1.0")]
     // after MoonFramework (when it's there): a hot plugin's Boot() registers buildings from LunarLink's Load
     [BepInDependency("moonsweepers.framework", BepInDependency.DependencyFlags.SoftDependency)]
     public class Plugin : BasePlugin

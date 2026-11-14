@@ -3,7 +3,7 @@
 Each release's section is its notes on the GitHub releases page (`tools/release.sh` copies it there). Only a release that
 changes the core needs a game restart; modules and hot plugins always update in place.
 
-## Unreleased
+## 1.1.0
 
 - **A support file for bug reports:** open `http://127.0.0.1:8765/support` (or F9 → **Support file**) and LunarLink
   saves `BepInEx/lunarlink-support-<date-time>.zip` with what's needed to find a problem: what failed, the errors from
