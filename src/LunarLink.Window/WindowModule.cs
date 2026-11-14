@@ -354,6 +354,7 @@ namespace LunarLink
         static readonly Dictionary<string, (DateTime at, string v)> versions = new Dictionary<string, (DateTime, string)>();
         static string FileVersion(string name)
         {
+            if (!name.StartsWith("LunarLink.", StringComparison.Ordinal)) return PluginVersion(name);
             try
             {
                 var f = Hot.FileOf(name); if (!System.IO.File.Exists(f)) return null;
@@ -362,6 +363,26 @@ namespace LunarLink
                 var v = System.Reflection.AssemblyName.GetAssemblyName(f).Version;
                 var s = v == null || v == new Version(1, 0, 0, 0) ? null : v == new Version(0, 0, 0, 0) ? "dev" : v.Revision > 0 ? v.ToString(4) : v.ToString(3);   // 1.0.0.0: .NET's default, no version
                 versions[name] = (at, s); return s;
+            }
+            catch { return null; }
+        }
+
+        // another hot plugin's version: the [BepInPlugin] in the copy that's loaded (where plugins keep theirs, as Crew
+        // Tools does), else its assembly version unless that's .NET's default; looked up again only when it reloads
+        static readonly Dictionary<string, (System.Reflection.Assembly asm, string v)> pluginVersions = new Dictionary<string, (System.Reflection.Assembly, string)>();
+        static string PluginVersion(string name)
+        {
+            try
+            {
+                var asm = AppDomain.CurrentDomain.GetAssemblies().LastOrDefault(a => !a.IsDynamic && string.Equals(a.GetName().Name, name, StringComparison.OrdinalIgnoreCase));
+                if (asm == null) return null;
+                if (pluginVersions.TryGetValue(name, out var seen) && seen.asm == asm) return seen.v;
+                string v = null;
+                Type[] types; try { types = asm.GetTypes(); } catch (System.Reflection.ReflectionTypeLoadException e) { types = e.Types.Where(t => t != null).ToArray(); }
+                foreach (var t in types)
+                    if (System.Reflection.CustomAttributeExtensions.GetCustomAttribute<BepInEx.BepInPlugin>(t) is BepInEx.BepInPlugin bp) { v = bp.Version.ToString(); break; }
+                if (v == null) { var av = asm.GetName().Version; if (av != null && av != new Version(1, 0, 0, 0) && av != new Version(0, 0, 0, 0)) v = av.Revision > 0 ? av.ToString(4) : av.ToString(3); }
+                pluginVersions[name] = (asm, v); return v;
             }
             catch { return null; }
         }
