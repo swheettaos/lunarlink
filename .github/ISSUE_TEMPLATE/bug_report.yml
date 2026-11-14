@@ -8,6 +8,23 @@ body:
       value: |
         Thanks for reporting it. The [Troubleshooting](https://github.com/swheettaos/lunarlink/wiki/Troubleshooting) page covers the common problems; if it's not there, tell us below.
   - type: textarea
+    id: support
+    attributes:
+      label: Support file (attach the zip here)
+      description: |
+        **A support file helps a lot: it has what's needed to find the problem.** With the game running (right after the problem, or after restarting if it crashed), open this address in your browser, then drag the zip it names into the box below or click **Paste, drop, or click to add files** under it:
+
+        ```
+        http://127.0.0.1:8765/support
+        ```
+
+        Or press **F9** and click **Support file**. Either way it saves `BepInEx/lunarlink-support-<date-time>.zip`: what failed, the errors from the logs (this run's and the previous run's), your plugins and settings. Players' names, Steam ids, your user name, LAN addresses and the access key are blanked out; open the zip if you want to check.
+
+        If the game won't start at all, attach `BepInEx/LogOutput.log` instead.
+      placeholder: Drag the lunarlink-support-....zip here
+    validations:
+      required: false
+  - type: textarea
     id: what
     attributes:
       label: What happened
@@ -41,23 +58,6 @@ body:
         - Something else
     validations:
       required: true
-  - type: textarea
-    id: support
-    attributes:
-      label: Support file
-      description: |
-        **A support file helps a lot: it has what's needed to find the problem.** With the game running (right after the problem, or after restarting if it crashed), open this address in your browser and drag the zip it names into this box:
-
-        ```
-        http://127.0.0.1:8765/support
-        ```
-
-        Or press **F9** and click **Support file**. Either way it saves `BepInEx/lunarlink-support-<date-time>.zip`: what failed, the errors from the logs (this run's and the previous run's), your plugins and settings. Players' names, Steam ids, your user name, LAN addresses and the access key are blanked out; open the zip if you want to check.
-
-        If the game won't start at all, attach `BepInEx/LogOutput.log` instead.
-      placeholder: Drag the lunarlink-support-....zip here
-    validations:
-      required: false
   - type: textarea
     id: logs
     attributes:
