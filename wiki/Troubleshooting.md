@@ -62,6 +62,7 @@ hangs but still answers.
 | `leftovers` | A Harmony patch was still in after `Stop()`; LunarLink took it out. Unpatch it in `Stop()` |
 | `oldCopiesAlive` growing (`?gc=1`) | Something still points at an old copy (a UI listener, an event): remove it in `Stop()` |
 | `"boot": "restart to boot"` | It registers buildings and was turned on after start-up: restart once |
+| `wrapped`, `off at restart`, or a "must stay in BepInEx/plugins/" error | A normal BepInEx plugin run by the wrapper (experimental): see [The Wrapper: troubleshooting](The-Wrapper#troubleshooting) |
 
 ## Updates
 

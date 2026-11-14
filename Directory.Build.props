@@ -17,6 +17,8 @@
     <Reference Include="$(GameDir)/BepInEx/core/Il2CppInterop.Runtime.dll" Private="false" />
     <Reference Include="$(GameDir)/BepInEx/core/Il2CppInterop.Common.dll" Private="false" />
     <Reference Include="$(GameDir)/BepInEx/core/Iced.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/core/Mono.Cecil.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/core/Mono.Cecil.Rocks.dll" Private="false" />
     <Reference Include="$(GameDir)/BepInEx/interop/Il2Cppmscorlib.dll" Private="false" />
     <Reference Include="$(GameDir)/BepInEx/interop/UnityEngine.CoreModule.dll" Private="false" />
     <Reference Include="$(GameDir)/BepInEx/interop/Assembly-CSharp.dll" Private="false" />

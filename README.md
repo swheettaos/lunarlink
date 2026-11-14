@@ -187,6 +187,39 @@ needs can't be turned off) and list every endpoint.
 A hot plugin runs with the same rights as any BepInEx plugin: **there is no sandbox**. Only enable DLLs you trust.
 How it's built, and why: [docs/HOT_RELOAD_PLAN.md](docs/HOT_RELOAD_PLAN.md).
 
+### Normal plugins in hot/: the wrapper (experimental)
+
+> **Experimental.** Test a plugin's Reload and Disable once before relying on them; if something goes wrong, move it
+> back to `BepInEx/plugins/` and restart, and please open an issue with the support file.
+
+A normal BepInEx plugin, never written for LunarLink, can live in `BepInEx/hot/` too: the **LunarLink.Wrap** module
+runs it *wrapped*, so F9's **Reload** and **Disable** work on it while the game runs. Put its DLL in `BepInEx/hot/`, or
+its folder named like its DLL if it brings files of its own (`BepInEx/hot/MarsSweepers/MarsSweepers.dll`), take it out
+of `BepInEx/plugins/`, and enable it in F9. It loads at game start where BepInEx would load it.
+
+How it works, in short:
+
+1. **Deciding.** A DLL in `hot/` with no `Start`/`Stop` class but a `[BepInPlugin]` class is wrapped, unless it's
+   MoonFramework or another plugin is built on it (libraries can't be hot-swapped; they're refused with a message).
+2. **Rewriting.** The wrapper changes the DLL in memory (Mono.Cecil) so that what the plugin starts goes through the
+   core's `HotTrack`: `new Thread` runs its body inside a guard that can be interrupted; timers and native hooks
+   (BepInEx `INativeDetour`, MonoMod detours) are recorded; `+=` on other mods' and the game's events is recorded with
+   its `-=`; `Assembly.Location` answers the DLL's real path. From the second copy on, its own Unity types are renamed
+   (`Driver_hot2`), since Il2Cpp keeps a type's name for good.
+3. **Running.** Each copy loads into its own unloadable context. An adapter object creates the plugin and calls its
+   `Load()`; the core runs that adapter like any hot plugin, and passes on the plugin's `HandleHttp`, `HttpHelp` and
+   `UpdateFeed`.
+4. **Turning it off.** Its own `Unload()` if it has one; its threads interrupted and joined; its hooks and timers
+   disposed; its event handlers removed; its Unity components destroyed; its log source removed; then, as for every hot
+   plugin, its Harmony patches and endpoints taken out and its context dropped. Once Unity has removed its objects,
+   the handles they held on its code are let go and the bridges Il2CppInterop pinned for its types are freed, so the
+   copy can leave memory.
+
+It can't undo what a plugin *changed* (as opposed to what it started), native hooks made outside BepInEx and MonoMod
+(those plugins turn off at the next start: **off at restart**), or long-running tasks. A plugin that Harmony-patches
+another mod's .NET code keeps old copies in memory after reloads. **MoonFramework must stay in `BepInEx/plugins/`.**
+Every step, with diagrams: [The Wrapper](https://github.com/swheettaos/lunarlink/wiki/The-Wrapper) on the wiki.
+
 ## The HTTP gateway
 
 LunarLink answers HTTP on **`http://127.0.0.1:8765/`**, with JSON. Its endpoints live in hot modules,
@@ -248,8 +281,12 @@ If only the modules changed, they reload in place with no restart; if the core c
 the window says to restart the game to finish. The same over HTTP: `POST /update/check`, `GET /update`,
 `POST /update/apply`. Or unzip a new release over the old files with the game closed.
 
-**Your other plugins:** hot-compatible ones (their docs say they reload in place, like Crew Tools) go in
-`BepInEx/hot/` and turn on in F9; every other plugin stays in `BepInEx/plugins/` as usual. Never both.
+**Your other plugins:** any of them can go in `BepInEx/hot/` (normal ones run wrapped, which is **experimental**) (its DLL, or its folder named like its DLL) and turn on
+in F9. Hot-compatible ones (like Crew Tools) reload with their state kept; normal BepInEx plugins run wrapped: they
+load like BepInEx would load them, and Reload and Disable undo what they started. **MoonFramework must stay in
+`BepInEx/plugins/`: it can't be hot-swapped** (other plugins are built on it, and it runs the modded buildings in your
+world); the same goes for any library other plugins use, and LunarLink refuses one in `hot/`. Anything you'd rather
+load the normal way stays there too. Never both folders.
 [Installing Plugins](https://github.com/swheettaos/lunarlink/wiki/Installing-Plugins) has the details.
 
 **From source:** needs the .NET 8 SDK in `~/.dotnet`, and the game with BepInEx 6 (IL2CPP) installed (not MoonFramework). The project
@@ -266,7 +303,7 @@ from `wiki/` by `tools/wiki.py` on every push.
 | Part | Where | Reloads |
 |---|---|---|
 | The core, `src/LunarLink`: server, frame pump, route table, hot loader | `BepInEx/plugins/LunarLink/LunarLink.dll` | No: game start only |
-| `src/LunarLink.Api`, `src/LunarLink.Perf`, `src/LunarLink.Window` (the F9 window), `src/LunarLink.Update` (updates) | `BepInEx/hot/` | Yes |
+| `src/LunarLink.Api`, `src/LunarLink.Perf`, `src/LunarLink.Window` (the F9 window), `src/LunarLink.Update` (updates), `src/LunarLink.Wrap` (runs normal BepInEx plugins hot) | `BepInEx/hot/` | Yes |
 
 **Releasing.** Put the version in `src/LunarLink/Server.cs`'s `[BepInPlugin]`, add its section to `CHANGELOG.md`, commit
 and push, then `tools/release.sh <x.y.z>`: it builds, zips the files in the game's folder layout and publishes the

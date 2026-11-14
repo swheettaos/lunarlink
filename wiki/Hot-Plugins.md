@@ -7,6 +7,13 @@ endpoints, its fps fixes and the F9 window are hot plugins themselves (`LunarLin
 LunarLink is optional for the people who use your plugin: a hot plugin is still a normal BepInEx plugin, and runs
 without LunarLink from `BepInEx/plugins/`. It's hot only when it's in `BepInEx/hot/` with LunarLink installed.
 
+**Normal BepInEx plugins can go in `BepInEx/hot/` too (experimental).** A plugin that wasn't written to these rules
+runs *wrapped* (see [[The Wrapper]]): it loads like BepInEx would load it, and
+Reload and Disable work on it too.
+
+**A plugin can have its own folder:** `BepInEx/hot/<Name>/<Name>.dll`, a folder named like its DLL. Files the plugin
+reads beside its DLL go in that folder, and so do DLLs it needs, which load with it.
+
 ## Why a separate folder
 
 (Which of your plugins go where, and how to move one: [[Installing Plugins]].)
@@ -101,12 +108,50 @@ sequenceDiagram
 A reload is usually a few milliseconds; a plugin with many game hooks takes longer (tens to a hundred ms), one short
 hitch.
 
+## Normal plugins: the wrapper (experimental)
+
+The full story, step by step: [[The Wrapper]].
+
+A plugin with a normal BepInEx plugin class (a `BasePlugin` with `[BepInPlugin]`) and no `Start`/`Stop` of its own
+runs wrapped, while the **LunarLink.Wrap** module is on (it is by default). The module rewrites the DLL as it loads it
+so that what the plugin starts can be undone, and gives LunarLink an object to start and stop like any hot plugin.
+
+| | What happens |
+|---|---|
+| **On** | The plugin is created and its `Load()` runs where BepInEx would run it: at game start, once BepInEx has loaded its own plugins (or at once, if you turn it on while the game runs) |
+| **Off** | Its own `Unload()` if it has one, then everything it started: its threads are stopped, its timers and native hooks (BepInEx's `INativeDetour`, MonoMod detours) undone, the event handlers it added elsewhere removed, its Unity components destroyed, and its Harmony patches taken out |
+| **Reload** | Off, then on with the new build. Il2Cpp keeps a registered type's name for good, so the plugin's own Unity types are registered under a new name in each later copy (`Driver_hot2`) |
+| **Its folder** | A wrapped plugin that asks for its own location (`Assembly.Location`) is told its DLL's path, so files beside it are found |
+
+F9 marks a wrapped plugin **wrapped**, and its **?** lists what the wrapper found: what it tracks, and anything it
+can't undo. Two things it can't:
+
+- **Native hooks made some other way** (its own calls into hooking libraries): turning it off or reloading it then
+  waits for a restart, since the hooks would jump into freed code. F9 shows **off at restart**.
+- **Long-running tasks** may keep running after it's off.
+
+What it changed in the game's own state (settings, data it laid out its own way) stays as it is: the wrapper undoes
+what the plugin *started*, not what it *did*. Test a plugin's off and on once before relying on it.
+
+**Libraries can't be wrapped. MoonFramework must stay in `BepInEx/plugins/`**: other plugins are built on it, and it
+runs the modded buildings in your world (see [[Installing Plugins]]). The wrapper refuses MoonFramework, and any DLL
+another installed plugin is built on, with a message in F9. Plugins that *use* MoonFramework can be hot; it stays loaded
+underneath them.
+
+Without the module, a normal plugin in `BepInEx/hot/` fails to load with a message saying so. Turning the module off
+doesn't stop plugins it already wrapped; they keep running until they're reloaded or turned off.
+
 ## Memory
 
 Each copy is loaded so it can be freed. Two caches inside BepInEx's Harmony support would keep every old copy alive
 (one bridge per patch change, and a delegate-type cache keyed by it), so after each reload LunarLink drops the entries
 of patches that are gone - only ones already dead at the previous reload, so nothing the game could still be calling.
-`GET /hot/list?gc=1` shows how many old copies are still in memory (normally 0 or 1).
+For a wrapped plugin's Unity types, it also frees the bridges Il2CppInterop pins for them, once Unity has removed their
+objects. `GET /hot/list?gc=1` shows how many old copies are still in memory.
+
+Known exception: a plugin that Harmony-patches **another mod's** .NET code (not the game's), such as MoonFramework's,
+keeps each old copy in memory after a reload (MonoMod holds on to the old patch code). It still reloads and turns off
+correctly; it only costs that copy's memory until the game restarts.
 
 ## Updating them
 

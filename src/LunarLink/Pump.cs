@@ -87,7 +87,7 @@ namespace LunarLink
 
         // The game's loading screen (MoonLoadingScreen.Active) - true until loading has really finished.
         static System.Reflection.PropertyInfo loadingActive; static bool loadingLooked;
-        static bool Loading()
+        internal static bool Loading()
         {
             try
             {

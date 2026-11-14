@@ -16,6 +16,7 @@
 **Plugins**
 - [[Hot Plugins]]
 - [[Writing a Hot Plugin]]
+- [[The Wrapper]] (experimental)
 - [[Plugin Examples]]
 - [[Plugins with Buildings]]
 

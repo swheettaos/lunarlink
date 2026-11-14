@@ -53,7 +53,7 @@ namespace LunarLink
         // one row as drawn, whichever tab it comes from
         sealed class View
         {
-            public string Name, State, Detail; public Color StateColour;
+            public string Name, State, Detail, Tip; public Color StateColour;     // Tip: a "?" on the row
             public List<(string label, Action act, bool accent)> Buttons = new List<(string, Action, bool)>();
         }
 
@@ -65,6 +65,7 @@ namespace LunarLink
 
         internal static void Update()
         {
+            SavedThenMenu();
             if (reopenTab >= 0 && layer == null) { tab = reopenTab; reopenTab = -1; Open(); message = "The window reloaded with the new build"; Draw(true); return; }
             var kb = Keyboard.current; if (kb == null) return;
             bool typing = false; try { typing = MoonCleaners.MoonInput.Typing; } catch { }   // not while typing in chat
@@ -155,7 +156,7 @@ namespace LunarLink
             if (to != first) { first = to; Draw(true); }
         }
 
-        static Color StateColour(string state) => state == "running" ? Green : state == "failed" ? Red : state.Contains("next start") ? Accent : state == "disabled" || state == "off" ? Dim : Ink;
+        static Color StateColour(string state) => state == "running" ? Green : state == "failed" ? Red : state.Contains("next start") || state.Contains("main menu") ? Accent : state == "disabled" || state == "off" ? Dim : Ink;
 
         // The rows of the tab in view; hidden = LunarLink modules left out, modules = how many there are.
         static List<View> Views(out int hidden, out int modules)
@@ -201,10 +202,28 @@ namespace LunarLink
             {
                 var v = new View { Name = r.Name, State = r.State, StateColour = StateColour(r.State),
                     Detail = r.Error != null ? "<color=#E6524A>" + Short(r.Error) + "</color>"
-                        : (FileVersion(r.Name) is string fv ? V(fv) + "   ·   " : "") + (r.Built != null ? "built " + r.Built : "") + (r.Newer ? "   <color=#FF7A2E>newer build on disk</color>" : "") + (r.NeedsRestart ? "   restart to register buildings" : "") };
-                bool off = r.State == "disabled"; var name = r.Name;
+                        : (FileVersion(r.Name) is string fv ? V(fv) + "   ·   " : "") + (r.Built != null ? "built " + r.Built : "") + (r.Newer ? "   <color=#FF7A2E>newer build on disk</color>" : "") + (r.NeedsRestart ? "   restart to register buildings" : "")
+                        + (r.Wrapped ? "   <color=#FF7A2E>wrapped (experimental)</color>" : "") };
+                if (r.Wrapped) v.Tip = "A normal BepInEx plugin, run by LunarLink's wrapper (experimental): it loads like BepInEx would, and Reload and Disable undo what it started. Test them once before relying on them. Details: the wiki's The Wrapper page."
+                    + (r.Warnings.Length > 0 ? "\n\n" + string.Join("\n", r.Warnings.Select(w => "• " + w)) : "\n\nNothing found that the wrapper can't undo.");
+                if (r.State == "off at restart") v.Detail += "   <color=#FF7A2E>off from the next start</color>";
+                bool waits = r.State == "reloads at main menu";
+                if (waits) v.Detail += "   <color=#FF7A2E>new copy loads at the main menu (or the next start)</color>";
+                bool off = r.State == "disabled" || r.State == "off at restart"; var name = r.Name;
                 v.Buttons.Add((off ? "Enable" : "Disable", () => Act(() => off ? Done(Hot.Enable(name, reload: false), "Enabled " + name) : Done(Hot.Disable(name), "Disabled " + name)), off));
-                v.Buttons.Add(("Reload", () => Act(() => Done(Hot.Enable(name, reload: true), "Reloaded " + name)), false));
+                // a wrapped plugin that loads its own content, in a world: Reload waits for the main menu (Hot.Waits), no forcing
+                if (waits)
+                {
+                    v.Buttons.Clear();
+                    v.Buttons.Add(("Save & main menu", () => Act(SaveThenMenu), true));
+                    v.Buttons.Add(("Cancel", () => Act(() => Done(Hot.CancelReload(name), "No reload of " + name)), false));
+                }
+                else v.Buttons.Add(("Reload", () => Act(() =>
+                {
+                    var pl = Hot.Enable(name, reload: true);
+                    return pl != null && pl.ReloadAtMenu ? name + " " + Hot.WaitReason(pl) + ", so its new copy loads at the main menu (in a world it couldn't save properly). Save & main menu does both for you"
+                        : Done(pl, "Reloaded " + name);
+                }), false));
                 list.Add(v);
             }
             return list;
@@ -346,6 +365,28 @@ namespace LunarLink
             }
             catch (Exception e) { u.on = true; u.error = "couldn't read the updater: " + e.Message; }
             return u;
+        }
+
+        // "Save & main menu" on a reload waiting for the main menu: the game's own save (the pause menu's), and once it has
+        // finished, the game's own way back to the menu (MoonSession.ReturnToMenu); the core reloads the plugin there
+        static MoonCleaners.MoonPauseMenu saving; static float savingSince;
+        static string SaveThenMenu()
+        {
+            var found = UnityEngine.Object.FindObjectsOfType(Il2CppInterop.Runtime.Il2CppType.Of<MoonCleaners.MoonPauseMenu>());
+            if (found.Length == 0) return "Couldn't find the game's pause menu: save and go to the main menu yourself";
+            saving = found[0].Cast<MoonCleaners.MoonPauseMenu>(); savingSince = Time.realtimeSinceStartup;
+            saving.SaveGame();
+            return "Saving, then going to the main menu...";
+        }
+        static void SavedThenMenu()
+        {
+            if (saving == null) return;
+            float waited = Time.realtimeSinceStartup - savingSince;
+            bool busy; try { busy = saving.IsSaving; } catch { busy = false; }
+            if ((busy || waited < 0.5f) && waited < 30f) return;              // the save starts within a frame or two
+            saving = null;
+            if (layer != null) Close();
+            MoonCleaners.MoonSession.ReturnToMenu();
         }
 
         // a version as shown: "v1.1.0.2", or "dev build"
@@ -508,6 +549,7 @@ namespace LunarLink
             Label(row, v.Detail, new Vector2(-W / 2 + 357, -18), new Vector2(600, 28), 17, Dim, TextAnchor.MiddleLeft);
             float x = W / 2 - 131;
             for (int i = v.Buttons.Count - 1; i >= 0; i--) { var (label, act, accent) = v.Buttons[i]; Button(row, label, new Vector2(x, 0), new Vector2(130, 46), act, accent); x -= 145; }
+            if (v.Tip != null) Help(panel, new Vector2(-15 + x + 30, y), v.Tip, new Vector2(720, 240), new Vector2(-15, y - RowH / 2 - 130));
         }
 
         static string Done(Hot.Plugin p, string ok) => p == null ? "Not found" : p.Error != null ? "Failed: " + Short(p.Error) : ok;

@@ -3,6 +3,8 @@
 ## What you need
 
 - **Moon Sweepers** with **BepInEx 6 (IL2CPP)**, run once so BepInEx has set itself up.
+- If you have **MoonFramework**, it stays in `BepInEx/plugins/`: it must never go in `BepInEx/hot/` (it can't be
+  hot-swapped; see [[Installing Plugins]]).
 - That's all. **MoonFramework**, the framework many Moon Sweepers mods build on, isn't required: LunarLink starts
   after it when it's installed, and uses it only for Perf's power fix and for plugins that add buildings.
 - To build from source (not needed for a release): the **.NET 8 SDK**.

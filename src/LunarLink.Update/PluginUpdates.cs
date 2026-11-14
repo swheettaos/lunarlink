@@ -61,7 +61,7 @@ namespace LunarLink
             {
                 if (name.StartsWith("LunarLink.", StringComparison.OrdinalIgnoreCase)) continue;      // LunarLink's own: the module channel
                 var feed = Feed(obj); if (feed == null) continue;
-                found.Add(new Entry { Name = name, Kind = "hot", Version = VersionOf(obj.GetType().Assembly), Feed = feed, Dir = Hot.Dir, Dll = name + ".dll" });
+                found.Add(new Entry { Name = name, Kind = "hot", Version = VersionOf(obj.GetType().Assembly), Feed = feed, Dir = System.IO.Path.GetDirectoryName(Hot.FileOf(name)), Dll = name + ".dll" });
             }
             foreach (var info in IL2CPPChainloader.Instance.Plugins.Values)
             {

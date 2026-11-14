@@ -6,3 +6,4 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("LunarLink.Perf")]
 [assembly: InternalsVisibleTo("LunarLink.Window")]
 [assembly: InternalsVisibleTo("LunarLink.Update")]
+[assembly: InternalsVisibleTo("LunarLink.Wrap")]

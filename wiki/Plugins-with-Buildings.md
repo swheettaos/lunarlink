@@ -1,5 +1,8 @@
 # Plugins with Buildings
 
+> **MoonFramework itself must stay in `BepInEx/plugins/`. It can't be hot-swapped.** Your plugin is the hot part:
+> MoonFramework stays loaded underneath it and keeps its buildings registered across reloads.
+
 MoonFramework lets a plugin add buildings (`Moon.RegisterBuilding`) with a machine behind each one. That needs two
 extra steps to reload, because of how MoonFramework works:
 

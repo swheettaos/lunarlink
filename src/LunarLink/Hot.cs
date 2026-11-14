@@ -7,6 +7,8 @@
 // (new to the folder) stays off until it's enabled - except LunarLink's own modules (LunarLink.*), which are on unless
 // they're in "disabled", so an update that brings a new module runs it and a module turned off on purpose stays off.
 // optional: string[] HttpHelp()  (one line per endpoint, "GET /path?x= | what it does", for /help and the API tab)
+// A DLL without such a class but with a normal BepInEx plugin class runs wrapped, when the LunarLink.Wrap module is on:
+// the module rewrites it as it loads and hands back an object with Start and Stop (see IWrapper below and Track.cs).
 // Everything here runs on the main thread (Load, Pump's frames, and requests, which Pump answers).
 using System;
 using System.Collections.Generic;
@@ -24,8 +26,16 @@ namespace LunarLink
     {
         internal sealed class Context : AssemblyLoadContext
         {
-            public Context(string name, bool collectible) : base(name, collectible) { }   // collectible: an unloaded copy is freed (see Bridges.cs)
-            protected override Assembly Load(AssemblyName name) => null;     // everything shared comes from the default context
+            readonly string folder;                                          // the plugin's own folder (hot/<name>/), or null
+            public Context(string name, bool collectible, string folder) : base(name, collectible) { this.folder = folder; }   // collectible: an unloaded copy is freed (see Bridges.cs)
+            // a DLL in the plugin's own folder loads with it (from memory, so the file can be replaced); everything else
+            // comes from the default context
+            protected override Assembly Load(AssemblyName name)
+            {
+                if (folder == null) return null;
+                var f = Path.Combine(folder, name.Name + ".dll");
+                return File.Exists(f) ? LoadFromStream(new MemoryStream(File.ReadAllBytes(f))) : null;
+            }
         }
 
         internal sealed class Plugin
@@ -40,7 +50,14 @@ namespace LunarLink
                 set { if (value) { enabled.Add(Name); disabled.Remove(Name); } else { enabled.Remove(Name); disabled.Add(Name); } }
             }
             public Context Ctx;
+            public Assembly Asm;
             public object Obj;
+            public bool Wrapped, WasWrapped;                                  // a normal BepInEx plugin run wrapped (now, or its last copy)
+            public bool WrapNative;                                           // native hooks the wrapper can't undo: off waits for a restart
+            public bool ReloadAtMenu;                                         // a wrapped plugin's reload asked for in a world: done at the main menu
+            public bool LoadsContent;                                         // the wrapper found it loads asset bundles (its own content)
+            public float WatchUntil; public int WatchErrors;                  // just reloaded: its errors are counted (ReloadWatch)
+            public readonly List<string> Warnings = new List<string>();     // what the wrapper found in the DLL, for F9
             public MethodInfo StartM, StopM, UpdateM, LateM, HttpM, HelpM;
             public readonly List<WeakReference> Old = new List<WeakReference>();   // earlier copies' contexts, to see if they unload
             public readonly List<string> Leftovers = new List<string>();
@@ -51,7 +68,15 @@ namespace LunarLink
         static readonly HashSet<string> disabled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         static bool started;
         internal static string Dir => Path.Combine(BepInEx.Paths.BepInExRootPath, "hot");
-        internal static string FileOf(string name) => Path.Combine(Dir, name + ".dll");
+        // A plugin is hot/<name>.dll, or hot/<name>/<name>.dll: a folder named like its DLL, for a plugin that brings
+        // files of its own (resources it reads beside its DLL, or DLLs it needs, which load with it: Context.Load).
+        internal static string FileOf(string name)
+        {
+            var flat = Path.Combine(Dir, name + ".dll");
+            if (File.Exists(flat)) return flat;
+            var inFolder = Path.Combine(Dir, name, name + ".dll");
+            return File.Exists(inFolder) ? inFolder : flat;
+        }
 
         // the loaded hot plugins and their objects (the Update module asks them for UpdateFeed())
         internal static List<(string name, object obj)> Loaded() => plugins.Values.Where(p => p.Obj != null).Select(p => (p.Name, p.Obj)).ToList();
@@ -66,6 +91,13 @@ namespace LunarLink
         // At game start (from LunarLink's Load): load every enabled DLL in the folder and call its Boot().
         internal static void LoadAll()
         {
+            HotTrack.InstallPins(new Harmony("LunarLink.pins"));          // so wrapped plugins' Il2Cpp types can be freed
+            // wrapped plugins run where BepInEx would have run them: once it has loaded every normal plugin
+            BepInEx.Unity.IL2CPP.IL2CPPChainloader.Instance.Finished += () =>
+            {
+                chainDone = true;
+                foreach (var w in plugins.Values.Where(x => x.Wrapped && !x.Running && x.Error == null).ToList()) Start(w, null);
+            };
             if (!Directory.Exists(Dir)) return;
             if (!File.Exists(SettingsFile))
             {
@@ -85,15 +117,23 @@ namespace LunarLink
             foreach (var name in mine) enabled.Add(name);
             if (mine.Count > 0) Save();
             Rescan();
-            foreach (var p in plugins.Values.Where(p => p.Enabled && File.Exists(FileOf(p.Name))).ToList())
+            // LunarLink's own modules first: the wrapper module has to be in place before a plugin it wraps loads
+            foreach (var p in plugins.Values.Where(p => p.Enabled && File.Exists(FileOf(p.Name))).OrderBy(p => p.Name.StartsWith("LunarLink.", StringComparison.OrdinalIgnoreCase) ? 0 : 1).ToList())
             {
                 try { Load(p); if (p.HasBoot) { Call(p, "Boot"); p.Booted = true; } }
                 catch (Exception e) { Fail(p, "load", e); }
             }
         }
 
+        // The wrapper slot, filled by the LunarLink.Wrap module while it runs.
+        internal static IWrapper Wrapper;
+
+        static bool chainDone;                                            // BepInEx has loaded its plugins: wrapped ones can run
+
         static IEnumerable<string> DllNames() => Directory.Exists(Dir)
-            ? Directory.GetFiles(Dir, "*.dll").Select(Path.GetFileNameWithoutExtension).OrderBy(n => n) : Enumerable.Empty<string>();
+            ? Directory.GetFiles(Dir, "*.dll").Select(Path.GetFileNameWithoutExtension)
+                .Concat(Directory.GetDirectories(Dir).Select(Path.GetFileName).Where(d => File.Exists(Path.Combine(Dir, d, d + ".dll"))))
+                .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(n => n) : Enumerable.Empty<string>();
 
         static void Save()
         {
@@ -122,7 +162,7 @@ namespace LunarLink
             foreach (var p in plugins.Values) if (p.Obj != null && !p.Running && p.Error == null) Start(p, null);
         }
 
-        internal static void Update() { foreach (var p in plugins.Values) if (p.Running && p.UpdateM != null) Frame(p, p.UpdateM); }
+        internal static void Update() { HotTrack.Frame(); ReloadWaiting(); ReloadWatch.Check(); foreach (var p in plugins.Values) if (p.Running && p.UpdateM != null) Frame(p, p.UpdateM); }
         internal static void LateUpdate() { foreach (var p in plugins.Values) if (p.Running && p.LateM != null) Frame(p, p.LateM); }
 
         // A request no LunarLink route took: offered to each running plugin with HandleHttp; null means "not mine".
@@ -157,7 +197,7 @@ namespace LunarLink
         internal static void Routes()
         {
             Api.Get("/hot/list", "?gc=1 : the hot plugins: state, build, newer build on disk, errors, leftovers, old copies still in memory", r => List(r.Query["gc"] == "1"));
-            Api.Post("/hot/reload", "?name= : reload a hot plugin from the build on disk now (and turn it on); ?all=1 : every one with a newer build", r =>
+            Api.Post("/hot/reload", "?name= : reload a hot plugin from the build on disk now (and turn it on); a wrapped plugin that loads its own content waits for the main menu while a world is loaded; ?all=1 : every one with a newer build", r =>
                 r.Query["all"] == "1" ? Timed(() => "\"reloaded\":[" + string.Join(",", ReloadChanged().Select(p => Entry(p, false))) + "]") : One(r, p => Enable(p, reload: true)));
             Api.Post("/hot/enable", "?name= : load and start a hot plugin, and remember it's on", r => One(r, p => Enable(p, reload: false)));
             Api.Post("/hot/disable", "?name= : stop and unload a hot plugin, and remember it's off", r => One(r, Disable));
@@ -194,6 +234,10 @@ namespace LunarLink
         {
             var p = Find(name); if (p == null) return null;
             if (!p.Enabled) { p.Enabled = true; Save(); }
+            if (reload && Pinned(p)) return p;
+            // no forcing it: a copy swapped in mid-world breaks its saves
+            if (reload && Waits(p)) { if (!p.ReloadAtMenu) { p.ReloadAtMenu = true; Log("reload of " + p.Name + " waits for the main menu"); } return p; }
+            p.ReloadAtMenu = false;
             if (reload || p.Obj == null) Reload(p);
             Bridges.Purge();
             return p;
@@ -203,15 +247,58 @@ namespace LunarLink
         internal static Plugin Disable(string name)
         {
             var p = Find(name); if (p == null) return null;
+            p.Enabled = false; Save();
+            if (Pinned(p)) return p;                                     // off from the next start
             if (p.Obj != null) StopAndUnload(p);
-            p.Enabled = false; p.Error = null; Save();
+            p.Error = null;
             Bridges.Purge();
             return p;
         }
 
+        // A running wrapped plugin with native hooks can't be stopped safely: its hooks would jump into freed code.
+        // It keeps running; a turn-off or a new build takes effect at the next start.
+        internal static bool Pinned(Plugin p) => p.Running && p.WrapNative;
+
+        // Most wrapped plugins reload fine mid-game. One that loads its own content (asset bundles: Mars Sweepers' planet)
+        // sets things up when the world loads, which a copy swapped in mid-game would miss. In a world, its reload waits
+        // until the world is gone - the main menu - and runs then (or at the next start). There's no forcing it: a copy
+        // forced in mid-world (tried with Mars Sweepers) ran, but the game refused to save, its world data being the
+        // old copy's.
+        internal static string WaitReason(Plugin p) => p.Wrapped && p.LoadsContent ? "it loads its own content when the world loads" : null;
+        static bool Waits(Plugin p) => p.Running && WaitReason(p) != null && Pump.World() != null;
+
+        // F9's Cancel on a waiting reload
+        internal static Plugin CancelReload(string name) { var p = Find(name); if (p != null && p.ReloadAtMenu) { p.ReloadAtMenu = false; Log("reload of " + p.Name + " cancelled"); } return p; }
+
+        // ReloadWatch: a just-reloaded plugin kept throwing. Stopped (it stays on, so the next start loads it cleanly),
+        // unless it can't be stopped safely (native hooks): then it's only marked.
+        internal static void StopFailed(string name, int errors)
+        {
+            if (!plugins.TryGetValue(name, out var p)) return;
+            bool stop = p.Obj != null && !Pinned(p);
+            if (stop) StopAndUnload(p);
+            p.Error = "its new copy failed " + errors + " times in its first seconds" + (stop ? ", so it was stopped" : "") + ": restart the game to load it cleanly";
+            LunarLink.Plugin.L.LogWarning("hot: " + p.Name + ": " + p.Error);
+            Pump.Journal("hot: " + p.Name + ": " + p.Error);
+            Bridges.Purge();
+        }
+
+        // Every frame: at the main menu (no world, no loading screen), the reloads that were waiting
+        static void ReloadWaiting()
+        {
+            if (!plugins.Values.Any(p => p.ReloadAtMenu) || Pump.World() != null || Pump.Loading()) return;
+            foreach (var p in plugins.Values.Where(p => p.ReloadAtMenu).ToList())
+            {
+                p.ReloadAtMenu = false;
+                if (p.Enabled && !Pinned(p)) { Log("main menu: reloading " + p.Name + " now"); Reload(p); }
+            }
+            Bridges.Purge();
+        }
+
         internal static List<Plugin> ReloadChanged()
         {
-            var done = plugins.Values.Where(p => p.Enabled && p.Obj != null && NewerOnDisk(p)).ToList();
+            var done = plugins.Values.Where(p => p.Enabled && p.Obj != null && NewerOnDisk(p) && !Pinned(p)).ToList();
+            foreach (var p in done.Where(Waits).ToList()) { done.Remove(p); if (!p.ReloadAtMenu) { p.ReloadAtMenu = true; Log("reload of " + p.Name + " waits for the main menu"); } }
             foreach (var p in done) Reload(p);
             Bridges.Purge();
             return done;
@@ -227,22 +314,26 @@ namespace LunarLink
         // What the manager window shows, one row per plugin.
         internal readonly struct Row
         {
-            public readonly string Name, State, Built, Error; public readonly bool Newer, NeedsRestart;
-            public Row(string name, string state, string built, string error, bool newer, bool needsRestart)
-            { Name = name; State = state; Built = built; Error = error; Newer = newer; NeedsRestart = needsRestart; }
+            public readonly string Name, State, Built, Error; public readonly bool Newer, NeedsRestart, Wrapped;
+            public readonly string[] Warnings;
+            public Row(string name, string state, string built, string error, bool newer, bool needsRestart, bool wrapped, string[] warnings)
+            { Name = name; State = state; Built = built; Error = error; Newer = newer; NeedsRestart = needsRestart; Wrapped = wrapped; Warnings = warnings; }
         }
 
         internal static List<Row> Rows() => plugins.Values.OrderBy(p => p.Name).Select(p => new Row(p.Name, StateOf(p),
-            p.Obj != null ? p.FileTime.ToLocalTime().ToString("HH:mm:ss") : null, p.Error, p.Obj != null && NewerOnDisk(p), p.HasBoot && !p.Booted)).ToList();
+            p.Obj != null ? p.FileTime.ToLocalTime().ToString("HH:mm:ss") : null, p.Error, p.Obj != null && NewerOnDisk(p), p.HasBoot && !p.Booted,
+            p.Wrapped, p.Warnings.ToArray())).ToList();
 
-        static string StateOf(Plugin p) => p.Error != null ? "failed" : !p.Enabled ? "disabled" : p.Running ? "running" : p.Obj != null ? "loaded" : "enabled";
+        static string StateOf(Plugin p) => p.Error != null ? "failed" : Pinned(p) && !p.Enabled ? "off at restart" : p.ReloadAtMenu ? "reloads at main menu"
+            : !p.Enabled ? "disabled" : p.Running ? "running" : p.Obj != null ? "loaded" : "enabled";
 
         // Stop the running copy (keeping what its Stop() hands over), load the DLL on disk now, start it with that state.
         static void Reload(Plugin p)
         {
+            ReloadWatch.Begin(p);
             string state = p.Running ? StopAndUnload(p) : (p.Obj != null ? Unload(p, null) : null);
             try { Load(p); } catch (Exception e) { Fail(p, "load", e); return; }
-            if (started) Start(p, state);
+            if (started || (p.Wrapped && chainDone)) Start(p, state);
         }
 
         static bool NewerOnDisk(Plugin p) => File.Exists(FileOf(p.Name)) && File.GetLastWriteTimeUtc(FileOf(p.Name)) > p.FileTime;
@@ -257,15 +348,27 @@ namespace LunarLink
         {
             var file = FileOf(p.Name);
             if (p.Ctx != null) Unload(p, null);              // a copy that failed to load half-way is dropped first
-            p.Error = null; p.Leftovers.Clear();
-            p.Ctx = new Context("hot:" + p.Name + "#" + (p.Loads + 1), true);
-            Assembly asm;
-            using (var dll = new MemoryStream(File.ReadAllBytes(file)))
+            p.Error = null; p.Leftovers.Clear(); p.Warnings.Clear(); p.WrapNative = false; p.LoadsContent = false;
+            var folder = Path.GetDirectoryName(file);
+            p.Ctx = new Context("hot:" + p.Name + "#" + (p.Loads + 1), true, string.Equals(Path.GetFullPath(folder), Path.GetFullPath(Dir), StringComparison.OrdinalIgnoreCase) ? null : folder);
+            var bytes = File.ReadAllBytes(file);
+            var pdbFile = Path.ChangeExtension(file, ".pdb");
+            // a normal BepInEx plugin is rewritten by the wrapper module, when it's on (a rewritten copy has no pdb)
+            int track = 0; string note = null;
+            if (Wrapper != null)
             {
-                var pdbFile = Path.ChangeExtension(file, ".pdb");
-                if (File.Exists(pdbFile)) using (var pdb = new MemoryStream(File.ReadAllBytes(pdbFile))) asm = p.Ctx.LoadFromStream(dll, pdb);
+                track = HotTrack.New();
+                var w = Wrapper.Prepare(bytes, p.Loads + 1, track, out note, out var warnings, out var native, out var content);
+                if (w != null) { bytes = w; p.Warnings.AddRange(warnings); p.WrapNative = native; p.LoadsContent = content; }
+                else { HotTrack.Discard(track); track = 0; }
+            }
+            Assembly asm;
+            using (var dll = new MemoryStream(bytes))
+            {
+                if (track == 0 && File.Exists(pdbFile)) using (var pdb = new MemoryStream(File.ReadAllBytes(pdbFile))) asm = p.Ctx.LoadFromStream(dll, pdb);
                 else asm = p.Ctx.LoadFromStream(dll);
             }
+            p.Asm = asm;
             p.FileTime = File.GetLastWriteTimeUtc(file);
             // the same plugin also in BepInEx/plugins/ (loaded at start) would run twice: refuse, and say which to turn off
             var dup = BepInEx.Unity.IL2CPP.IL2CPPChainloader.Instance.Plugins.Values.FirstOrDefault(b =>
@@ -277,8 +380,23 @@ namespace LunarLink
             }
             var t = asm.GetTypes().FirstOrDefault(x => x.IsClass && !x.IsAbstract && x.GetConstructor(Type.EmptyTypes) != null
                 && M(x, "Start", typeof(string)) != null && M(x, "Stop") != null && M(x, "Stop").ReturnType == typeof(string));
-            if (t == null) throw new InvalidOperationException("no class with Start(string) and string Stop()");
-            p.Obj = Activator.CreateInstance(t);
+            if (t == null)
+            {
+                // the wrapper's object for it, which has Start and Stop (and passes on HandleHttp, HttpHelp, UpdateFeed)
+                var adapter = track != 0 ? Wrapper.Adapt(asm, file, track) : null;
+                if (adapter == null)
+                {
+                    if (track != 0) HotTrack.Discard(track);
+                    throw new InvalidOperationException("no class with Start(string) and string Stop()" + (Wrapper == null
+                        ? " (a normal BepInEx plugin runs here only while the LunarLink.Wrap module is on)" : ", and no BepInEx plugin class"));
+                }
+                p.Obj = adapter; t = adapter.GetType(); p.Wrapped = p.WasWrapped = true;
+            }
+            else
+            {
+                if (track != 0) { HotTrack.Discard(track); p.Warnings.Clear(); p.WrapNative = false; }
+                p.Obj = Activator.CreateInstance(t);
+            }
             p.StartM = M(t, "Start", typeof(string)); p.StopM = M(t, "Stop");
             p.UpdateM = M(t, "Update"); p.LateM = M(t, "LateUpdate");
             p.HttpM = M(t, "HandleHttp", typeof(string), typeof(string), typeof(NameValueCollection), typeof(string));
@@ -286,7 +404,7 @@ namespace LunarLink
             p.HelpM = M(t, "HttpHelp"); if (p.HelpM != null && p.HelpM.ReturnType != typeof(string[])) p.HelpM = null;
             p.HasBoot = t.GetMethod("Boot", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null) != null;
             p.Loads++;
-            Pump.Journal("hot: loaded " + p.Name + " (copy " + p.Loads + ")");
+            Pump.Journal("hot: loaded " + p.Name + " (copy " + p.Loads + (p.Wrapped ? ", wrapped" + (note != null ? ", " + note : "") : "") + ")");
         }
 
         static MethodInfo M(Type t, string name, params Type[] args) => t.GetMethod(name, BindingFlags.Public | BindingFlags.Instance, null, args, null);
@@ -295,7 +413,11 @@ namespace LunarLink
 
         static void Start(Plugin p, string state)
         {
-            try { p.StartM.Invoke(p.Obj, new object[] { state }); p.Running = true; Log("started " + p.Name + " (copy " + p.Loads + ")"); }
+            try
+            {
+                p.StartM.Invoke(p.Obj, new object[] { state });
+                p.Running = true; Log("started " + p.Name + " (copy " + p.Loads + (p.Wrapped ? ", wrapped" : "") + ")");
+            }
             catch (Exception e) { Fail(p, "Start", e); Unload(p, null); }   // whatever it did before throwing (patches, routes) goes
         }
 
@@ -322,6 +444,7 @@ namespace LunarLink
                 p.Running = false;
                 try { state = (string)p.StopM.Invoke(p.Obj, null); }
                 catch (Exception e) { var x = e.InnerException ?? e; LunarLink.Plugin.L.LogError("hot: " + p.Name + " Stop: " + x); }
+                if (p.Obj is IWrapped w) p.Leftovers.AddRange(w.Leftovers);
             }
             return Unload(p, state);
         }
@@ -329,11 +452,11 @@ namespace LunarLink
         static string Unload(Plugin p, string state)
         {
             ForceUnpatch(p);
-            var asm = p.Obj?.GetType().Assembly;
+            var asm = p.Asm;
             if (asm != null) { int n = Api.RemoveFrom(asm); if (n > 0) Pump.Journal("hot: " + p.Name + "'s " + n + " routes removed"); }
             p.State = state;
             var ctx = p.Ctx;
-            p.Obj = null; p.Ctx = null; p.StartM = p.StopM = p.UpdateM = p.LateM = p.HttpM = p.HelpM = null;
+            p.Obj = null; p.Ctx = null; p.Asm = null; p.Wrapped = false; p.StartM = p.StopM = p.UpdateM = p.LateM = p.HttpM = p.HelpM = null;
             if (ctx != null)
             {
                 p.Old.Add(new WeakReference(ctx));
@@ -347,7 +470,7 @@ namespace LunarLink
         // plugin's copy is still in after Stop(): take it out and report it.
         static void ForceUnpatch(Plugin p)
         {
-            var asm = p.Obj?.GetType().Assembly;
+            var asm = p.Asm;
             var owners = new HashSet<string>();
             foreach (var m in Harmony.GetAllPatchedMethods().ToList())
             {
@@ -385,7 +508,9 @@ namespace LunarLink
             var s = "{\"name\":" + J.S(p.Name) + ",\"state\":" + J.S(StateOf(p)) + ",\"built\":" + J.S(p.Obj != null ? p.FileTime.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss") : null)
                 + ",\"error\":" + J.S(p.Error) + ",\"loads\":" + p.Loads + ",\"boot\":" + (p.HasBoot ? (p.Booted ? "\"done\"" : "\"restart to boot\"") : "false")
                 + ",\"newerOnDisk\":" + (p.Obj != null && NewerOnDisk(p) ? "true" : "false")
-                + ",\"leftovers\":[" + string.Join(",", p.Leftovers.Select(J.S)) + "]";
+                + ",\"leftovers\":[" + string.Join(",", p.Leftovers.Select(J.S)) + "]"
+                + ",\"reloadAtMenu\":" + (p.ReloadAtMenu ? "true" : "false")
+                + ",\"wrapped\":" + (p.Wrapped || (p.Obj == null && p.WasWrapped) ? "true" : "false") + ",\"warnings\":[" + string.Join(",", p.Warnings.Select(J.S)) + "]";
             if (full) s += ",\"oldCopiesAlive\":" + p.Old.Count(w => w.IsAlive) + ",\"oldCopies\":" + p.Old.Count;
             return s + "}";
         }

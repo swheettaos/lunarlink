@@ -127,6 +127,7 @@
       <p>F9's UPDATES tab checks when you ask (or at every game start, if you tick that) and shows a count when something's new: LunarLink's releases, its single modules as built from main, and any plugin
          that names where its builds are (<code>UpdateFeed()</code>, on GitHub or any HTTPS host). SHA-256 checked. Only the
          core ever needs a restart: modules and hot plugins update in place.</p></div>
+    <div class="card"><span class="tag">Wrapper · experimental</span><h3>Your other plugins, hot too</h3><p>Put a normal BepInEx plugin in <code>BepInEx/hot/</code> and LunarLink runs it wrapped: reload it and turn it off while you play. It undoes what the plugin started: patches, threads, hooks, event handlers, Unity objects. MoonFramework must stay in <code>plugins/</code>.</p></div>
     <div class="card"><span class="tag">MCP</span><h3>Ask an AI assistant</h3><p>An MCP server turns every endpoint, plugins' included, into a tool for Claude or any MCP client: "is my base working?", "which catchers are full?". Reads only unless you allow more.</p></div>
     <div class="card"><span class="tag">Performance</span><h3>Find what eats the frame</h3>
       <p>Unity's own counters at almost no cost, stopwatches on any method, a component census, and fps fixes for big
@@ -229,7 +230,7 @@ sequenceDiagram
 
 <section>
   <h2>Start in five minutes</h2>
-  <p class="sub">You only need BepInEx 6 (IL2CPP). MoonFramework is optional: LunarLink uses it for its power fix and for plugins that add buildings.</p>
+  <p class="sub">You only need BepInEx 6 (IL2CPP). MoonFramework is optional: LunarLink uses it for its power fix and for plugins that add buildings. If you have it, it <strong>must stay in <code>BepInEx/plugins/</code></strong>: it can't be hot-swapped.</p>
   <ol class="steps">
     <li><b>Install it, with the game closed</b>Download <code>LunarLink-&lt;version&gt;.zip</code> from <a href="https://www.nexusmods.com/moonsweepers/mods/158">Nexus Mods</a> or the <a href="https://github.com/swheettaos/lunarlink/releases/latest">latest release</a> and unzip it into the game's folder (the one that holds <code>BepInEx/</code>). Or build it from source with the .NET 8 SDK:
       <pre class="code">git clone https://github.com/swheettaos/lunarlink.git
@@ -264,6 +265,7 @@ curl -s "127.0.0.1:8765/structures?x=0&amp;y=2000&amp;z=0&amp;r=30"</pre></li>
     <a class="card" href="api.html"><h3>API reference</h3><p>Every endpoint LunarLink serves, searchable and grouped by area.</p></a>
     <a class="card" href="HOT_PLUGINS.html"><h3>Writing a hot plugin</h3><p>The contract, the rules, building, reloading and shipping.</p></a>
     <a class="card" href="HOT_RELOAD_PLAN.html"><h3>How hot reloading works</h3><p>The design, and why it's built the way it is.</p></a>
+    <a class="card" href="https://github.com/swheettaos/lunarlink/wiki/The-Wrapper"><h3>The wrapper (experimental)</h3><p>How normal BepInEx plugins run hot: deciding, rewriting, running, turning off, and what it can't do.</p></a>
     <a class="card" href="https://github.com/swheettaos/lunarlink/wiki/Updates"><h3>Updates</h3><p>How LunarLink updates itself, and how your plugin can update itself with one method.</p></a>
     <a class="card" href="https://github.com/swheettaos/lunarlink/wiki/MCP"><h3>MCP server</h3><p>Let Claude or another AI assistant use the game through LunarLink: set-up and what to ask.</p></a>
     <a class="card" href="https://github.com/swheettaos/lunarlink/wiki/Troubleshooting#asking-for-help-the-support-file"><h3>Something wrong?</h3><p>Open <code>127.0.0.1:8765/support</code> (or F9 → Support file) and attach the zip it saves to a bug report.</p></a>

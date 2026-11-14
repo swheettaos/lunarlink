@@ -5,6 +5,24 @@ changes the core needs a game restart; modules and hot plugins always update in 
 
 ## Unreleased
 
+- **Normal BepInEx plugins can go in `BepInEx/hot/` (experimental):** a plugin not written for LunarLink runs *wrapped* by the new
+  **LunarLink.Wrap** module. It loads where BepInEx would load it, and F9's Reload and Disable work on it: its own
+  `Unload()` if it has one, then everything it started is undone (threads stopped, timers and native hooks undone,
+  event handlers it added elsewhere removed, its Unity objects destroyed, its Harmony patches taken out). Its Unity
+  types get a new name in each later copy, since Il2Cpp keeps a name for good. A plugin that asks for its own location
+  is told its DLL's path. F9 marks it **wrapped**, and its **?** lists what the wrapper found; a plugin that hooks the
+  game in a way the wrapper can't undo turns off at the next start instead (**off at restart**). Needs a restart once,
+  for the core.
+- **MoonFramework must stay in `BepInEx/plugins/`; it can't be hot-swapped.** The wrapper refuses it, and any library
+  another installed plugin is built on, with a message in F9.
+- **A hot plugin can have its own folder:** `BepInEx/hot/<Name>/<Name>.dll`, with the files it reads and the DLLs it
+  needs beside it (those load with it).
+- **LunarLink's own modules load first** at game start.
+- **Wrapped plugins with their own content reload safely:** their asset bundles are unloaded when they stop, so the
+  new copy can load them again; while a world is loaded their Reload waits for the main menu (F9: **Save & main menu**
+  saves the game's own way and goes there), since a copy swapped in mid-world can't save the world it didn't set up.
+- **A reload that keeps failing is stopped:** errors from a plugin's code in the 10 s after its reload are counted, and
+  at 20 it's stopped with "restart the game" on its row, instead of throwing every frame.
 - **Modules have version numbers:** a release's modules carry its number (1.1.0), and each later build on the module
   channel counts up from it (1.1.0.1, 1.1.0.2...). F9 shows them on HOT PLUGINS, and UPDATES says which is available
   and which you have; `GET /update` lists both (`version`, `installed`), and so does the channel's `modules.json`.
