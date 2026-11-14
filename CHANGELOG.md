@@ -26,12 +26,14 @@ changes the core needs a game restart; modules and hot plugins always update in 
 - **Modules have version numbers:** a release's modules carry its number (1.1.0), and each later build on the module
   channel counts up from it (1.1.0.1, 1.1.0.2...). F9 shows them on HOT PLUGINS, and UPDATES says which is available
   and which you have; `GET /update` lists both (`version`, `installed`), and so does the channel's `modules.json`.
-  A module whose number is newer than yours is offered even when its code is the same (so one built before versions
-  gets its number).
+  A module built before versions is offered once more so it gets its number.
 - **`POST /game/money/modify?add=` or `?set=`:** change the team's money (the host only, in a crew game; logged). It
   goes through the game's own wallet, so Crew Tools logs it as the host's own change, not as cheating.
 - **F9 shows every hot plugin's version**, not only LunarLink's modules: the one in its `[BepInPlugin]` (Crew Tools
   v1.2.4, Who Left The Light On? v0.1.1).
+- **F9 → UPDATES says when a restart is still needed:** after an update that brought a new core, checking again said
+  "up to date" although the game still ran the old core. It now says "restart the game to finish" until it's done
+  (`GET /update`: `loaded`, `restartPending`).
 - **The F9 window stays open through an update:** an update that reloads the window module (or any reload of it) used
   to close the window, and its message with it; it now reopens on the same tab, so the update's result shows.
 

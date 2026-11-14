@@ -71,6 +71,24 @@ namespace LunarLink
         // core's own [BepInPlugin] version when there's no manifest (an older install)
         internal static string Running => Manifest().version ?? BepInEx.MetadataHelper.GetMetadata(typeof(Plugin)).Version.ToString();
 
+        // A new core installed while the game runs only loads at the next start: until then the core in memory is the old
+        // one. Its build stamp (Pump.PluginVersion, from the loaded DLL) then differs from installed-version, which the
+        // update wrote with the new core. Every check says "restart to finish" while that's so, not "up to date".
+        internal static bool RestartPending
+        {
+            get
+            {
+                try
+                {
+                    var f = Path.Combine(Api.DataDir, "installed-version");
+                    return File.Exists(f) && File.ReadAllText(f).Trim() is string inst && inst.Length > 0 && inst != Pump.PluginVersion;
+                }
+                catch { return false; }
+            }
+        }
+        // the core in memory now: its [BepInPlugin] version
+        static string Loaded => BepInEx.MetadataHelper.GetMetadata(typeof(Plugin)).Version.ToString();
+
         // what's installed, from manifest.json: the version, the core's fingerprint, each module's
         static (string version, string core, Dictionary<string, string> modules) Manifest()
         {
@@ -127,8 +145,11 @@ namespace LunarLink
 
         internal static string Json()
         {
+            // a new core waiting for the restart, whatever the last check said (or none yet)
+            bool pending = RestartPending;
             lock (gate)
-                return "{\"ok\":true,\"running\":" + J.S(Running) + ",\"autoCheck\":" + (Auto ? "true" : "false") + ",\"state\":" + J.S(state) + ",\"latest\":" + J.S(latest) + ",\"page\":" + J.S(page)
+                return "{\"ok\":true,\"running\":" + J.S(Running) + ",\"loaded\":" + J.S(Loaded) + ",\"restartPending\":" + (pending ? "true" : "false")
+                    + ",\"autoCheck\":" + (Auto ? "true" : "false") + ",\"state\":" + J.S(pending && (state == "idle" || state == "up to date" || state == "available") ? "restart" : state) + ",\"latest\":" + J.S(latest) + ",\"page\":" + J.S(page)
                     + ",\"size\":" + size + ",\"coreChanged\":" + (coreChanged == null ? "null" : coreChanged.Value ? "true" : "false")
                     + ",\"detail\":" + J.S(detail) + ",\"error\":" + J.S(error) + ",\"notes\":" + J.S(notes)
                     + ",\"channel\":{\"error\":" + J.S(channelError) + ",\"published\":" + J.S(channelModified) + ",\"modules\":[" + string.Join(",", modules.Select(m =>
@@ -156,10 +177,9 @@ namespace LunarLink
             catch { return null; }
         }
 
-        // the channel's version is newer than the installed one: a higher number, or one where the installed DLL has none
-        // ("dev", a module built here, never counts as older)
-        static bool Newer(string channel, string installed) =>
-            Version.TryParse(channel, out var c) && installed != "dev" && (installed == null || (Version.TryParse(installed, out var i) && c > i));
+        // the same source is offered again only to give a module built before versions its number (its DLL has none);
+        // the same code under another number (a release's x.y.z, the channel's x.y.z.1) is up to date ("dev" never counts)
+        static bool Newer(string channel, string installed) => Version.TryParse(channel, out _) && installed == null;
 
         internal static bool Busy
         {
@@ -221,6 +241,11 @@ namespace LunarLink
                     size = found ? asset.GetProperty("size").GetInt64() : 0;
                 }
                 if (!found) { Set("failed", null, "release " + tag + " has no LunarLink zip"); return; }
+                if (RestartPending)
+                {
+                    Set("restart", "LunarLink " + Running + " is installed, but the game still runs " + Loaded + ": restart the game to finish (the core loads only at start)");
+                    return;
+                }
                 bool newer = Version.TryParse(ver, out var v) && Version.TryParse(Running, out var mine) && v > mine;
                 Set(newer ? "available" : "up to date", newer ? "LunarLink " + ver + " is available (running " + Running + ")" : "LunarLink " + Running + " is the latest release");
             }
