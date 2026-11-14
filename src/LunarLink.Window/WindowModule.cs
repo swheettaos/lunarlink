@@ -289,7 +289,7 @@ namespace LunarLink
             {
                 var u = ReadUpdates();
                 int newer = u.modules.Count(m => m.state == "available");
-                if (u.on && !u.busy)
+                if (u.on && !u.busy && u.state != "restart")              // nothing to check or install until the new core has loaded
                 {
                     Button(panel, "Check for updates", new Vector2(W / 2 - 180, top - 88), new Vector2(260, 42), () => Act(() => { Updates.Check?.Invoke(); return "Asking GitHub for LunarLink's latest release and module builds..."; }), true);
                     if (newer > 1) Button(panel, "Update all modules", new Vector2(W / 2 - 180, top - 134), new Vector2(260, 40), () => Act(() => { Updates.Apply?.Invoke("all"); return "Updating " + newer + " modules..."; }));
@@ -452,6 +452,7 @@ namespace LunarLink
             }
             v.Detail = u.error != null ? "<color=#E6524A>" + Short(u.error) + "</color>" : u.detail ?? "Press Check for updates to ask GitHub";
             var latest = u.latest;
+            bool restart = u.state == "restart";
             if (u.state == "available")
                 v.Buttons.Add(("Update", () => Act(() => { Updates.Apply?.Invoke(""); return "Updating LunarLink to " + latest + "..."; }), true));
             rows.Add(v);
@@ -471,7 +472,7 @@ namespace LunarLink
                          : m.state == "needs core" ? "Built for a newer LunarLink core: it comes with the next LunarLink release (one restart)"
                          : (m.installed != null ? (m.state == "available" ? "you have " : "") + V(m.installed) + "   ·   " : "") + (m.note != null ? Short(m.note) : "") + (m.built != null ? "   ·   built " + m.built : "");
                 var name = m.name;
-                if (m.state == "available") r.Buttons.Add(("Update", () => Act(() => { Updates.Apply?.Invoke(name); return "Updating " + name + "..."; }), true));
+                if (m.state == "available" && !restart) r.Buttons.Add(("Update", () => Act(() => { Updates.Apply?.Invoke(name); return "Updating " + name + "..."; }), true));
                 rows.Add(r);
             }
             // plugins that update themselves (they answer UpdateFeed()): from where they say
@@ -490,7 +491,7 @@ namespace LunarLink
                 r.Detail = p.error != null ? "<color=#E6524A>" + Short(p.error) + "</color>"
                          : "from " + p.from + (p.kind == "hot" ? " (hot: reloads in place)" : " (needs a restart)") + (p.notes != null ? "   ·   " + Short(p.notes.Trim().Split('\n')[0].TrimStart('-', ' ', '*')) : "");
                 var name = p.name;
-                if (p.state == "available") r.Buttons.Add(("Update", () => Act(() => { Updates.Apply?.Invoke("plugin:" + name); return "Updating " + name + "..."; }), true));
+                if (p.state == "available" && !restart) r.Buttons.Add(("Update", () => Act(() => { Updates.Apply?.Invoke("plugin:" + name); return "Updating " + name + "..."; }), true));
                 rows.Add(r);
             }
             return rows;

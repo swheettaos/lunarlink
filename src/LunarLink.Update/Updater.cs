@@ -139,7 +139,8 @@ namespace LunarLink
             Api.Post("/update/modify", "?auto=1|0 : check for updates by itself once a moon is loaded, at every game start (off by default: checking is manual)", r => SetAuto(r.Query["auto"] == "1"));
             Api.Ask("/update/check", "Ask GitHub for LunarLink's latest release and the module channel, and each plugin's update feed, then read GET /update", r => Check());
             Api.Post("/update/apply", "Install the latest release (modules reload in place; a new core needs a restart), or ?module=<name>|all: modules from the channel, reloaded in place, or ?plugin=<name>: a plugin's own update (UpdateFeed). ?force=1 reinstalls the same release", r =>
-                !string.IsNullOrEmpty(r.Query["plugin"]) ? PluginUpdates.Apply(r.Query["plugin"])
+                RestartPending ? "{\"ok\":false,\"reason\":" + J.S(RestartFirst) + "}"
+                : !string.IsNullOrEmpty(r.Query["plugin"]) ? PluginUpdates.Apply(r.Query["plugin"])
                 : string.IsNullOrEmpty(r.Query["module"]) ? Apply(r.Query["force"] == "1") : ApplyModules(r.Query["module"]));
         }
 
@@ -202,13 +203,19 @@ namespace LunarLink
 
         // the slot's Apply (the F9 window's buttons): "" the latest release, a module's name or "all", "plugin:<name>" a
         // plugin's own update, "auto:1" / "auto:0" the "check at game start" setting
-        internal static string ApplyAny(string what) => string.IsNullOrEmpty(what) ? Apply(false)
+        internal static string ApplyAny(string what) => RestartPending && !(what ?? "").StartsWith("auto:") ? RestartFirst
+            : string.IsNullOrEmpty(what) ? Apply(false)
             : what.StartsWith("plugin:") ? PluginUpdates.Apply(what.Substring(7))
             : what.StartsWith("auto:") ? SetAuto(what == "auto:1") : ApplyModules(what);
+
+        // a new core waiting for the restart: nothing is checked or installed until it's done (on top of a pending core,
+        // a new release or module could be meant for either core)
+        const string RestartFirst = "a new LunarLink core is installed: restart the game first (the core loads only at start)";
 
         internal static string Check()
         {
             if (Busy) return Json();
+            if (RestartPending) { Set("restart", "LunarLink " + Running + " is installed, but the game still runs " + Loaded + ": restart the game to finish (the core loads only at start)"); return Json(); }
             lock (gate) { state = "checking"; error = null; detail = null; coreChanged = null; channelError = null; }
             PluginUpdates.Discover();                            // on this (main) thread: asks each plugin for UpdateFeed()
             Task.Run(CheckNow);
