@@ -9,6 +9,8 @@
 # subject, and the core fingerprint they all need:
 #   {"coreHash": "...", "modules": {"LunarLink.Api": {"version", "sourceHash", "sha256", "size", "built", "commit", "note", "url"}}}
 # Each module's version is the one build.sh gave it (manifest.json's moduleVersions; CI passes it the channel's list).
+# FORCE="LunarLink.Api LunarLink.Perf" (or "all") publishes those again although their source didn't change (CI: run
+# the build workflow by hand with "force"), say to give a module built before versions its number.
 # A download caught between the two fails its SHA-256 check and is simply offered again.
 set -e
 cd "$(dirname "$0")/.."
@@ -29,6 +31,7 @@ gh release download "$TAG" -R "$REPO" -p modules.json -D "$WORK" 2>/dev/null || 
 python3 - "$OUT/manifest.json" "$WORK/modules.json" "$WORK" "$REPO" "$TAG" <<'EOF'
 import hashlib, json, os, subprocess, sys, time
 manifest, published, work, repo, tag = sys.argv[1:]
+force = os.environ.get("FORCE", "").split()
 m = json.load(open(manifest)); old = json.load(open(published))
 core_changed = old.get("coreHash") != m["coreHash"]
 feed = {"coreHash": m["coreHash"], "modules": {}}
@@ -36,7 +39,7 @@ upload = []
 for name, src in m["modules"].items():
     prev = old.get("modules", {}).get(name)
     version = m.get("moduleVersions", {}).get(name)
-    if prev and prev.get("sourceHash") == src and not core_changed:
+    if prev and prev.get("sourceHash") == src and not core_changed and "all" not in force and name not in force:
         feed["modules"][name] = dict(prev, version=prev.get("version") or version); continue
     dll = f"src/{name}/bin/Release/net6.0/{name}.dll"
     data = open(dll, "rb").read()

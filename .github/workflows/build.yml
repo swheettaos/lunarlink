@@ -9,6 +9,11 @@ on:
     branches: [main]
     paths: [src/**, samples/**, Directory.Build.props, build.sh, .github/workflows/build.yml]
   workflow_dispatch:
+    inputs:
+      force:
+        description: Modules to publish again although unchanged ("LunarLink.Api LunarLink.Perf", or "all")
+        required: false
+        default: ""
 permissions:
   contents: write          # the module channel (tools/publish-modules.sh)
 concurrency: build         # one publish at a time
@@ -61,4 +66,5 @@ jobs:
         if: env.REFS_KEY != '' && github.ref == 'refs/heads/main' && github.repository == 'swheettaos/lunarlink'
         env:
           GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.force }}
         run: tools/publish-modules.sh

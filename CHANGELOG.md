@@ -8,6 +8,8 @@ changes the core needs a game restart; modules and hot plugins always update in 
 - **Modules have version numbers:** a release's modules carry its number (1.1.0), and each later build on the module
   channel counts up from it (1.1.0.1, 1.1.0.2...). F9 shows them on HOT PLUGINS, and UPDATES says which is available
   and which you have; `GET /update` lists both (`version`, `installed`), and so does the channel's `modules.json`.
+  A module whose number is newer than yours is offered even when its code is the same (so one built before versions
+  gets its number).
 - **The F9 window stays open through an update:** an update that reloads the window module (or any reload of it) used
   to close the window, and its message with it; it now reopens on the same tab, so the update's result shows.
 

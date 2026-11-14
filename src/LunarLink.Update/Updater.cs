@@ -156,6 +156,11 @@ namespace LunarLink
             catch { return null; }
         }
 
+        // the channel's version is newer than the installed one: a higher number, or one where the installed DLL has none
+        // ("dev", a module built here, never counts as older)
+        static bool Newer(string channel, string installed) =>
+            Version.TryParse(channel, out var c) && installed != "dev" && (installed == null || (Version.TryParse(installed, out var i) && c > i));
+
         internal static bool Busy
         {
             get { lock (gate) if (state == "checking" || state == "downloading" || state == "reloading" || modules.Any(m => m.State == "downloading" || m.State == "reloading")) return true; return PluginUpdates.Busy; }
@@ -238,8 +243,9 @@ namespace LunarLink
                     var e = p.Value; string Str(string k) => e.TryGetProperty(k, out var x) && x.ValueKind == JsonValueKind.String ? x.GetString() : null;
                     var m = new Module { Name = p.Name, Version = Str("version"), SourceHash = Str("sourceHash"), Sha256 = Str("sha256"), Url = Str("url"), Note = Str("note"),
                                          Built = Str("built"), Commit = Str("commit"), Size = e.TryGetProperty("size", out var sz) ? sz.GetInt64() : 0 };
+                    // available: other source, or the same source with a newer number (a module built before versions has none)
                     m.State = core != installed.core ? "needs core"
-                            : installed.modules.TryGetValue(m.Name, out var have) && have == m.SourceHash ? "up to date" : "available";
+                            : installed.modules.TryGetValue(m.Name, out var have) && have == m.SourceHash && !Newer(m.Version, Installed(m.Name)) ? "up to date" : "available";
                     list.Add(m);
                 }
                 lock (gate) { modules.Clear(); modules.AddRange(list.OrderBy(m => m.Name)); channelCore = core; channelModified = res.Content.Headers.LastModified?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " UTC"; }
