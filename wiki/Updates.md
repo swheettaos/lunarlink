@@ -17,12 +17,12 @@ is checked against a SHA-256 first.
 |---|---|---|
 | **LunarLink x.y.z** | The latest [release](https://github.com/swheettaos/lunarlink/releases/latest) | If the core is unchanged, its modules reload in place. If the core changed, it's put in place for the next start: the row says **restart to finish** |
 | **LunarLink.Api**, **.Perf**, **.Window**, **.Update** | The **module channel**: each module as built from `main`, between releases | It reloads in place, no restart. A module built for a newer core says **needs a newer core** and comes with the next release |
+| **A plugin** | Wherever its `UpdateFeed()` says: a GitHub repo's releases, or any public HTTPS address | A hot plugin reloads in place; a normal plugin's DLL is swapped for the next start |
 
 **Module versions.** In a release every module has the release's number (1.1.0). Each later build of a module on the
 channel counts up from it: 1.1.0.1, 1.1.0.2, and so on; the next release starts again at its own number. F9 shows each
 module's version on HOT PLUGINS, and UPDATES says which one is available and which you have ("1.1.0.2 available, you
 have v1.1.0.1"). A module you built yourself shows as **dev build**.
-| **A plugin** | Wherever its `UpdateFeed()` says: a GitHub repo's releases, or any public HTTPS address | A hot plugin reloads in place; a normal plugin's DLL is swapped for the next start |
 
 **Update all modules** (top) updates every module with a newer build at once. The same is available over HTTP:
 `POST /update/check`, `GET /update`, `POST /update/apply` (`?module=`, `?plugin=`); see [[API Reference]].
