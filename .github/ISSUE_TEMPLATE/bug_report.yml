@@ -42,20 +42,37 @@ body:
     validations:
       required: true
   - type: textarea
+    id: support
+    attributes:
+      label: Support file
+      description: |
+        **A support file helps a lot: it has what's needed to find the problem.** With the game running (right after the problem, or after restarting if it crashed), open this address in your browser and drag the zip it names into this box:
+
+        ```
+        http://127.0.0.1:8765/support
+        ```
+
+        Or press **F9** and click **Support file**. Either way it saves `BepInEx/lunarlink-support-<date-time>.zip`: what failed, the errors from the logs (this run's and the previous run's), your plugins and settings. Players' names, Steam ids, your user name, LAN addresses and the access key are blanked out; open the zip if you want to check.
+
+        If the game won't start at all, attach `BepInEx/LogOutput.log` instead.
+      placeholder: Drag the lunarlink-support-....zip here
+    validations:
+      required: false
+  - type: textarea
     id: logs
     attributes:
-      label: Logs
+      label: Anything else from the logs (optional)
       description: |
-        The lines around the problem from `BepInEx/LogOutput.log`, and after a freeze the end of `BepInEx/plugins/LunarLink/requests.log` (the `MAIN THREAD STUCK` part if there is one).
+        Lines you think matter, if you want to point at them.
       render: text
   - type: input
     id: versions
     attributes:
       label: Versions
-      description: LunarLink (the "version" GET /status reports), BepInEx, MoonFramework, and the game.
-      placeholder: "LunarLink 2026-11-13 15:34:00, BepInEx 6.0.0-be.791, MoonFramework 0.7.8"
+      description: LunarLink, BepInEx and the game (the support file has them too, so this can be short).
+      placeholder: "LunarLink 1.1.0, BepInEx 6.0.0-be.791"
     validations:
-      required: true
+      required: false
   - type: textarea
     id: mods
     attributes:

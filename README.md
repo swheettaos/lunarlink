@@ -276,6 +276,13 @@ DLLs. `--dry-run` only builds the zip into `dist/`.
 **Version.** `/status` reports the running build's stamp; `./build.sh --install` writes the same stamp to
 `BepInEx/plugins/LunarLink/installed-version`. If they differ, the game is still running an older core: restart it.
 
+## Something wrong?
+
+Open **`http://127.0.0.1:8765/support`** in a browser while the game runs (or press F9 → **Support file**). It saves
+`BepInEx/lunarlink-support-<date-time>.zip` with what's needed to find the problem: what failed, the errors from the
+logs of this run and the previous one, your plugins and settings, with names, Steam ids and addresses blanked out.
+Attach it to a [bug report](https://github.com/swheettaos/lunarlink/issues/new/choose).
+
 ## Endpoints
 
 LunarLink's own endpoints, by area. The tables and the [API reference](https://swheettaos.github.io/lunarlink/api.html)
@@ -290,6 +297,7 @@ The core: status and hot plugins.
 | Endpoint | What it does |
 |---|---|
 | `GET /status` | Is LunarLink up: its build, whether a world is loaded, game time, queue and frames |
+| `GET /support` | Write a support file (BepInEx/lunarlink-support-<time>.zip) to attach to a GitHub issue: what failed, logs, plugins, settings, names blanked out |
 | `GET /hot/list` | ?gc=1 : the hot plugins: state, build, newer build on disk, errors, leftovers, old copies still in memory |
 | `POST /hot/reload` | ?name= : reload a hot plugin from the build on disk now (and turn it on); ?all=1 : every one with a newer build |
 | `POST /hot/enable` | ?name= : load and start a hot plugin, and remember it's on |

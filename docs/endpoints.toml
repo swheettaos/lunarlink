@@ -1637,6 +1637,28 @@ notes = [
   "`world`: a moon is loaded. `time`: game seconds. `queued`: requests waiting for a frame. `served`: requests answered since start. `frames`: frames since start.",
 ]
 
+["/support"]
+about = "Write a support file, `BepInEx/lunarlink-support-<date-time>.zip`, to attach to a bug report: what failed, the errors from the logs of this run and the previous one, the plugins and the settings, with names, Steam ids, the user name, LAN addresses and the access key blanked out."
+use = "When something goes wrong (a plugin fails, crashes or doesn't load, the game freezes): open it in a browser and attach the zip it names to a GitHub issue. It answers at the main menu, while a module is broken, and while the game is frozen."
+example = "GET /support"
+answer = '''
+{
+ "ok": true,
+ "file": "C:\\Games\\Moon Sweepers\\BepInEx\\lunarlink-support-20261114-101500.zip",
+ "problems": [
+  "Hot plugin MyPlugin failed: TypeLoadException: ...",
+  "3 errors from MoonFramework in the BepInEx log"
+ ],
+ "attach": "Attach this file to your issue at https://github.com/swheettaos/lunarlink/issues/new/choose"
+}
+'''
+notes = [
+  "A browser gets a short page instead of JSON: where the file is, and what it found.",
+  "In the zip: `summary.txt` (what looks wrong first, then the setup and the moment), `plugins/` (hot plugins, BepInEx plugins and their dependency errors, every DLL with its date and hash, the updater), `logs/` and `previous-run/` (errors with the lines round them, the start and end of the BepInEx, game and LunarLink logs, any freeze), `crashes/` (Unity's crash reports) and `config/`.",
+  "LunarLink keeps a copy of the BepInEx log as the game runs (`plugins/LunarLink/support/`), so a crashed run's log is still in the file after a restart. The last five support files are kept.",
+  "F9's **Support file** button does the same.",
+]
+
 ["/structures"]
 about = "Every structure in the world: id, kind, position, rotation, what it stands on and what it stores. Filter it: on a big base the full list is thousands of entries."
 use = "Find what's built where: everything near a point (`x,y,z,r`), only one kind (`kind=99`: the robots), or only what a script just built (`since=`). Almost every build or clean-up script starts here."

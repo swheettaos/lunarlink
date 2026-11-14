@@ -31,6 +31,7 @@ namespace LunarLink
         public override void Load()
         {
             L = Log;
+            Support.Init();                                            // the machine as Unity sees it, and the BepInEx log keeper
             AddComponent<Pump>();
             var address = Config.Bind("Server", "Address", "127.0.0.1",
                 "Where the API listens. 127.0.0.1 = this machine only (the default). This machine's address on your network (for example 192.168.1.20), or 0.0.0.0 for every network, lets other machines in: they must then send the Access key.").Value;
@@ -103,11 +104,12 @@ namespace LunarLink
                 var lines = Encoding.ASCII.GetString(head.ToArray()).Split("\r\n");
                 Pump.Journal("net: header read: " + lines[0]);
                 var target = lines[0].Split(' ').Length > 1 ? lines[0].Split(' ')[1] : "/";
-                int len = 0; string key = null;
+                int len = 0; string key = null; bool html = false;
                 foreach (var h in lines)
                 {
                     if (h.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase)) int.TryParse(h.Substring(15).Trim(), out len);
                     else if (h.StartsWith("X-LunarLink-Key:", StringComparison.OrdinalIgnoreCase)) key = h.Substring(18).Trim();
+                    else if (h.StartsWith("Accept:", StringComparison.OrdinalIgnoreCase)) html = h.Contains("text/html");
                 }
                 var body = new byte[Math.Min(len, 4 << 20)];
                 int got = 0;
@@ -130,6 +132,9 @@ namespace LunarLink
                                                             : "{\"error\":\"wrong or missing access key (X-LunarLink-Key header, or key=)\"}");
                     return;
                 }
+                // the support file: written here, off the main thread, so it works at the main menu, with a module
+                // broken, and while the game is frozen
+                if (req.Method == "GET" && req.Path.TrimEnd('/') == "/support") { Pump.Journal("net: support file"); Send(client, 200, Support.Http(html)); return; }
                 Pump.Journal("net: queueing " + req.Path + " (queue had " + Pending.Count + ")");
                 Pending.Enqueue(new Job { Req = req, Client = client });
                 Pump.Journal("net: queued " + req.Path);

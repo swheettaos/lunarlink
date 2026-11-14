@@ -218,10 +218,18 @@ namespace LunarLink
                 "<b>HOT PLUGINS</b>: the DLLs in BepInEx/hot/. Enable, Disable (it leaves memory) and Reload, all while the game runs.\n" +
                 "<b>BEPINEX PLUGINS</b>: the normal plugins in BepInEx/plugins/. Turning one off or on applies at the next game start.\n" +
                 "<b>API</b>: every HTTP request on 127.0.0.1:8765, from LunarLink, its modules and plugins.\n" +
-                "<b>UPDATES</b>: new LunarLink releases, module builds and plugin versions. Only a new core needs a restart.\n\n" +
+                "<b>UPDATES</b>: new LunarLink releases, module builds and plugin versions. Only a new core needs a restart.\n" +
+                "<b>Support file</b>: saves a zip in BepInEx/ to attach to a bug report (names and ids blanked out).\n\n" +
                 keyLabel + " opens and closes this window; the mouse wheel scrolls the list.",
                 new Vector2(660, 250), new Vector2(0, h / 2 - Head - 140));
             Button(panel, "×", new Vector2(W / 2 - 38, h / 2 - 36), new Vector2(52, 50), Close);
+            // the support file (the core's GET /support): everything needed for a bug report, names blanked out
+            Button(panel, "Support file", new Vector2(-W / 2 + 112, h / 2 - 36), new Vector2(190, 46), () => Act(() =>
+            {
+                var (file, problems, error) = Support.Save();
+                return error != null ? "Couldn't write the support file: " + error
+                    : "Saved BepInEx/" + System.IO.Path.GetFileName(file) + ": attach it to a GitHub issue" + (problems.Count > 0 ? " (" + problems.Count + " problem" + (problems.Count == 1 ? "" : "s") + " found)" : "");
+            }));
             float top = h / 2f - Head;
             // the tabs: pills, the open one orange
             int waiting = ReadUpdates().Waiting;          // a count on the UPDATES tab when something has an update

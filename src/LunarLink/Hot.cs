@@ -366,12 +366,17 @@ namespace LunarLink
             if (owners.Count > 0) LunarLink.Plugin.L.LogWarning("hot: " + p.Name + " left Harmony patches in after Stop(): " + string.Join(", ", owners));
         }
 
+        // for the support file, read off the main thread: a copy of the list first
+        internal static string ListJson() => List(false);
+        internal static List<(string name, string error, int leftovers, bool newer)> Snapshot() =>
+            plugins.Values.ToList().Select(p => (p.Name, p.Error, p.Leftovers.Count, p.Obj != null && NewerOnDisk(p))).ToList();
+
         static string List(bool gc)
         {
             if (gc) { for (int i = 0; i < 3; i++) { GC.Collect(); GC.WaitForPendingFinalizers(); } }
             var sb = new StringBuilder("{\"dir\":" + J.S(Dir) + ",\"bridges\":" + Bridges.Status() + ",\"plugins\":[");
             bool first = true;
-            foreach (var p in plugins.Values) { if (!first) sb.Append(','); first = false; sb.Append(Entry(p, true)); }
+            foreach (var p in plugins.Values.ToList()) { if (!first) sb.Append(','); first = false; sb.Append(Entry(p, true)); }
             return sb.Append("]}").ToString();
         }
 

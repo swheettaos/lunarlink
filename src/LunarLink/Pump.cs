@@ -31,7 +31,8 @@ namespace LunarLink
             Plugin.Frames++;
             Mark("pump: frame " + Plugin.Frames + " (game frame " + Time.frameCount + ") update start"); if (Time.frameCount <= TraceUntil) Journal("pump: update start");
             if (mainThread < 0) { mainThread = Thread.CurrentThread.ManagedThreadId; Journal("pump: first frame"); }
-            if (Plugin.Frames % 300 == 0) Journal("pump: alive, " + Plugin.Pending.Count + " queued, " + Plugin.Served + " served");
+            if (Plugin.Frames % 300 == 0) { Journal("pump: alive, " + Plugin.Pending.Count + " queued, " + Plugin.Served + " served"); NoteForSupport(); }
+            Support.LastFrameTicks = System.Diagnostics.Stopwatch.GetTimestamp();
             if (worldSince < 0f)
             {
                 if (Time.realtimeSinceStartup < nextLook) return;
@@ -44,6 +45,8 @@ namespace LunarLink
                 worldSince = Time.realtimeSinceStartup;
                 Plugin.L.LogInfo("game loaded (loading screen gone); answering requests");
                 Journal("game loaded");
+                Support.WorldLoaded = true;
+                try { Support.PlayerName = Steamworks.SteamFriends.GetPersonaName(); } catch { }     // blanked out in support files
                 TraceUntil = Time.frameCount + 5;
                 // nothing is patched in here: twice (2026-11-06 19:00, 19:15) the game locked inside its own
                 // MoonWorld.UpdateProgress (start-up clean-section check) right after perf timers were patched in at this
@@ -155,6 +158,16 @@ namespace LunarLink
             catch { }
         }
 
+        // every 300 frames: the frame rate and the game's heap, for the support file
+        static float noteAt = -1f;
+        static void NoteForSupport()
+        {
+            float now = Time.realtimeSinceStartup;
+            if (noteAt > 0f && now > noteAt) Support.Fps = 300 / (now - noteAt);
+            noteAt = now;
+            try { Support.GameHeapMB = IL2CPP.il2cpp_gc_get_used_size() / 1048576.0; } catch { }
+        }
+
         internal static MoonWorld World()
         {
             if (world == null)
@@ -168,7 +181,11 @@ namespace LunarLink
         // stamped by build.sh (the build time); /status reports it so a client can tell which build the game loaded
         static string Status() => "{\"ok\":true,\"version\":" + J.S(PluginVersion) + ",\"world\":" + (World() != null ? "true" : "false") + ",\"time\":" + J.F(Time.time)
             + ",\"queued\":" + Plugin.Pending.Count + ",\"served\":" + Plugin.Served + ",\"frames\":" + Plugin.Frames + "}";
-        internal static void Routes() => Api.Get("/status", "Is LunarLink up: its build, whether a world is loaded, game time, queue and frames", r => Status());
+        internal static void Routes()
+        {
+            Api.Get("/status", "Is LunarLink up: its build, whether a world is loaded, game time, queue and frames", r => Status());
+            Api.Get("/support", "Write a support file (BepInEx/lunarlink-support-<time>.zip) to attach to a GitHub issue: what failed, logs, plugins, settings, names blanked out", r => Support.Http(false));
+        }
 
         internal static readonly string PluginVersion = typeof(Plugin).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "dev";
 

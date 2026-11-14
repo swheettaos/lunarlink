@@ -1,5 +1,20 @@
 # Troubleshooting
 
+## Asking for help: the support file
+
+If something goes wrong (a plugin fails, crashes or doesn't load, or the game freezes), make a support file and attach it
+to a [bug report](https://github.com/swheettaos/lunarlink/issues/new/choose):
+
+1. With the game running (right after the problem, or after restarting if it crashed), open
+   **`http://127.0.0.1:8765/support`** in a browser, or press **F9** and click **Support file**.
+2. It saves `BepInEx/lunarlink-support-<date-time>.zip` and tells you where, with a list of what it found.
+3. Drag the zip into the bug report.
+
+It holds what's needed to find the problem: what failed, the errors from the BepInEx, game and LunarLink logs (this run's
+and the previous run's, so a crash is still there after a restart), Unity's crash reports, your plugins and DLLs, and
+your settings. Players' names, Steam ids, your user and PC name, LAN addresses and the access key are blanked out; open
+the zip to see exactly what's in it. It works at the main menu and even while the game is frozen.
+
 ## The API doesn't answer
 
 | Symptom | Cause |

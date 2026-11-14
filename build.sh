@@ -2,8 +2,9 @@
 # Build LunarLink: the core (src/LunarLink) and its hot modules (src/LunarLink.<Module>), stamped with the build
 # time (/status reports the core's; /hot/list each module's).
 #   ./build.sh                 build everything
-#   ./build.sh --install       game closed: the core into BepInEx/plugins/LunarLink/ (writes installed-version) and the
-#                              modules into BepInEx/hot/ (the core turns a new module on at start, unless turned off before)
+#   ./build.sh --install       the core into BepInEx/plugins/LunarLink/ (writes installed-version) and the
+#                              modules into BepInEx/hot/ (the core turns a new module on at start, unless turned off before);
+#                              with the game running, staged for the next start the way the in-game updater does it
 #   ./build.sh --hot <Name>    game running: build one module (World, Build...) or a sample (samples/<Name>), copy it
 #                              into BepInEx/hot/ and reload it. The core itself only loads at game start.
 set -e
@@ -48,8 +49,20 @@ for m in $MODULES; do build "src/LunarLink.$m"; done
 echo "built the core and $(echo $MODULES | wc -w) modules ($V)"
 [ "$1" = "--install" ] || exit 0
 
-if running; then echo "the game is running: close it first (the core only loads at game start), or use --hot <Module>"; exit 1; fi
 D="$GAME/BepInEx/plugins/LunarLink"; mkdir -p "$D"
+# the game running: staged the way the in-game updater does it - the loaded core is renamed (a loaded DLL can be renamed,
+# not overwritten) and the new one put in its place, and the modules wait in plugins/LunarLink/update/ (a new module
+# must not run on the old core); the next start loads the new core, which moves them into BepInEx/hot/
+if running; then
+    cp src/LunarLink/bin/Release/net6.0/LunarLink.dll "$D/LunarLink.dll.new"
+    rm -f "$D/LunarLink.dll.old"; mv "$D/LunarLink.dll" "$D/LunarLink.dll.old"; mv "$D/LunarLink.dll.new" "$D/LunarLink.dll"
+    echo "$V" > "$D/installed-version"
+    cp src/LunarLink/bin/Release/net6.0/manifest.json "$D/manifest.json"
+    rm -rf "$D/update"; mkdir -p "$D/update"
+    for m in $MODULES; do cp "src/LunarLink.$m/bin/Release/net6.0/LunarLink.$m.dll" "$D/update/"; done
+    echo "staged $V: the core and $(echo $MODULES | wc -w) modules; restart the game to finish (the core loads only at start)"
+    exit 0
+fi
 cp src/LunarLink/bin/Release/net6.0/LunarLink.dll "$D/LunarLink.dll.new" && mv -f "$D/LunarLink.dll.new" "$D/LunarLink.dll"
 echo "$V" > "$D/installed-version"
 cp src/LunarLink/bin/Release/net6.0/manifest.json "$D/manifest.json"

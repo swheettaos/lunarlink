@@ -5,6 +5,11 @@ changes the core needs a game restart; modules and hot plugins always update in 
 
 ## Unreleased
 
+- **A support file for bug reports:** open `http://127.0.0.1:8765/support` (or F9 → **Support file**) and LunarLink
+  saves `BepInEx/lunarlink-support-<date-time>.zip` with what's needed to find a problem: what failed, the errors from
+  the BepInEx, game and LunarLink logs of this run and the previous one (a crash's log survives the restart), Unity's
+  crash reports, the plugins, DLLs and settings. Names, Steam ids, the user name, LAN addresses and the access key are
+  blanked out. It works at the main menu and while the game is frozen. The bug report form asks for it.
 - **Removed the MoonFramework backup** (`GET /game/backup` and the `framework-backups/` folder): LunarLink doesn't
   need MoonFramework, so it no longer copies MoonFramework's per-save file at game start. Copies already made stay
   where they are; delete `BepInEx/plugins/LunarLink/framework-backups/` if you don't want them.
