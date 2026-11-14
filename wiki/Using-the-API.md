@@ -104,6 +104,27 @@ can ask "is my base working?" instead of calling `/base/health` yourself.
   works from anywhere.
 - **The player in a vehicle** ignores teleports.
 
+## From another plugin
+
+A plugin, hot or normal, uses the API the same way: HTTP to `http://127.0.0.1:8765/`. It needs no reference to
+LunarLink and no key (it's on this machine); changes still need the `allow-writes` file. **Never wait for the answer
+on the game's main thread** (in `Update()`, a Harmony patch, a Unity callback): LunarLink answers on that same thread,
+between frames, so a request the main thread waits on can never be answered and the game freezes. Send it from a task
+and use the answer later:
+
+```csharp
+static readonly System.Net.Http.HttpClient http = new() { BaseAddress = new System.Uri("http://127.0.0.1:8765/") };
+static volatile string money;                                  // read on the main thread whenever it's there
+
+static void AskMoney() => System.Threading.Tasks.Task.Run(async () =>
+{
+    try { money = await http.GetStringAsync("game/money"); }   // {"money":1250000.5}
+    catch { money = null; }                                    // LunarLink isn't installed, or not running
+});
+```
+
+With LunarLink missing the request just fails, so the plugin carries on without it.
+
 ## Finding endpoints
 
 - `GET /help` lists every endpoint with what it does, grouped by area and plugin; `/help?path=/structures` narrows it.
