@@ -1,2 +1,5 @@
 title: LunarLink
 description: An HTTP API into Moon Sweepers, and plugins that reload while the game runs.
+defaults:
+  - scope: { path: "", type: pages }
+    values: { layout: doc }
