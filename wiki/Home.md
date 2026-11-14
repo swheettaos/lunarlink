@@ -1,5 +1,7 @@
 # LunarLink
 
+![LunarLink: hot plugins for Moon Sweepers](https://swheettaos.github.io/lunarlink/header.png)
+
 LunarLink is a framework for **Moon Sweepers** plugins that reload while the game runs (BepInEx 6, IL2CPP).
 
 - **Hot reloading.** Write a new plugin, or [convert one you have](Writing-a-Hot-Plugin#converting-an-existing-plugin),

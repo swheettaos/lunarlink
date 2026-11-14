@@ -1,5 +1,7 @@
 # LunarLink
 
+![LunarLink: hot plugins for Moon Sweepers](docs/header.png)
+
 **A framework for Moon Sweepers plugins that reload while the game runs.** Write a new plugin, or convert one you
 have, to a short contract; rebuild it, and the running game switches to the new code within a frame. Its Harmony
 patches, endpoints and state carry across, with no restart and no reloading the save. LunarLink is a BepInEx 6 (IL2CPP)

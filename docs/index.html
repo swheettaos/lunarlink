@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>LunarLink</title>
 <meta name="description" content="An HTTP API into Moon Sweepers, and BepInEx plugins that reload while the game runs.">
+<meta property="og:title" content="LunarLink">
+<meta property="og:description" content="Hot plugins for Moon Sweepers: reload, turn off and update plugins while the game runs.">
+<meta property="og:image" content="https://swheettaos.github.io/lunarlink/nexus.png">
+<meta name="twitter:card" content="summary_large_image">
 <style>
   :root { --bg: #f6f5f1; --panel: #ffffff; --ink: #1c2230; --dim: #6b6a66; --line: #e2e0da; --accent: #d9601a;
           --accent-soft: #fbe9dc; --get: #2f7d4a; --post: #b4531a; --code: #f0eee8; --hero1: #1c2230; --hero2: #2b3242; }
@@ -65,6 +69,8 @@
   th { color: var(--dim); font-weight: 600; font-size: 13px; }
   .tablebox { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
 
+  figure.shot { margin: 28px 0 0; }
+  figure.shot img { display: block; width: 100%; height: auto; border-radius: 14px; border: 1px solid var(--line); }
   footer { margin-top: 56px; border-top: 1px solid var(--line); padding: 22px 0 40px; color: var(--dim); font-size: 14px; }
   footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 22px; }
 </style>
@@ -94,6 +100,8 @@
 </header>
 
 <main class="wrap">
+
+<figure class="shot"><img src="nexus.png" alt="LunarLink: hot plugins, updates, an HTTP API and MCP for Moon Sweepers" loading="eager"></figure>
 
 <section class="keys">
   <div class="key"><b>Optional for players</b>A plugin written to the contract is still a normal BepInEx plugin. Without LunarLink it runs from <code>BepInEx/plugins/</code> like any other.</div>
