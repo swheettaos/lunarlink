@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lunarlink-mcp"
+version = "0.1.0"
+description = "Moon Sweepers' LunarLink API as MCP tools for an AI assistant"
+readme = "README.md"
+license = "GPL-3.0-only"
+requires-python = ">=3.10"
+dependencies = ["mcp>=2.3,<3"]
+
+[project.urls]
+Homepage = "https://github.com/swheettaos/lunarlink"
+
+[project.scripts]
+lunarlink-mcp = "lunarlink_mcp:main"
+
+[tool.setuptools]
+py-modules = ["lunarlink_mcp"]

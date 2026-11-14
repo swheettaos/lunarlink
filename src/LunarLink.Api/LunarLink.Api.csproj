@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../LunarLink/LunarLink.csproj" Private="false" />
+    <!-- the API reference page: served live at /help.html, and filled from the source by tools/endpoints.py -->
+    <EmbeddedResource Include="help.html" LogicalName="LunarLink.help.html" />
+    <!-- every endpoint's details (docs/endpoints.toml, written here by tools/endpoints.py): /help?details=1 and /help.html -->
+    <EmbeddedResource Include="endpoints.json" LogicalName="LunarLink.endpoints.json" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,7 @@
+bin/
+obj/
+_wiki/
+dist/
+mcp/build/
+*.egg-info/
+.venv/

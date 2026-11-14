@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LunarLink</title>
+<meta name="description" content="An HTTP API into Moon Sweepers, and BepInEx plugins that reload while the game runs.">
+<style>
+  :root { --bg: #f6f5f1; --panel: #ffffff; --ink: #1c2230; --dim: #6b6a66; --line: #e2e0da; --accent: #d9601a;
+          --accent-soft: #fbe9dc; --get: #2f7d4a; --post: #b4531a; --code: #f0eee8; --hero1: #1c2230; --hero2: #2b3242; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #15171c; --panel: #1e2128; --ink: #ece9e2; --dim: #9a978f; --line: #2c3039; --accent: #ff8a3d;
+            --accent-soft: #3a2a1f; --get: #6fcf8e; --post: #ffa25e; --code: #191b21; --hero1: #0f1115; --hero2: #1b1f27; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  a { color: var(--accent); }
+  code, pre { font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+
+  header.hero { background: linear-gradient(160deg, var(--hero1), var(--hero2)); color: #ece9e2; position: relative; overflow: hidden; }
+  .hero .wrap { padding-top: 56px; padding-bottom: 64px; position: relative; z-index: 1; }
+  .hero svg.moon { position: absolute; right: -60px; top: -40px; width: 360px; height: 360px; opacity: .9; z-index: 0; }
+  .hero h1 { font-size: clamp(36px, 7vw, 56px); margin: 0 0 8px; letter-spacing: -0.02em; }
+  .hero p.lead { font-size: clamp(17px, 2.4vw, 21px); max-width: 620px; margin: 0 0 28px; color: #c9c5bc; }
+  .btns { display: flex; flex-wrap: wrap; gap: 10px; }
+  .btn { display: inline-block; padding: 10px 18px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 15px;
+         border: 1px solid #ffffff33; color: #ece9e2; }
+  .btn.main { background: #ff8a3d; border-color: #ff8a3d; color: #1c1308; }
+  .btn:hover { filter: brightness(1.1); }
+
+  section { padding: 48px 0 8px; }
+  section.keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; padding-top: 28px; }
+  .key { border-left: 3px solid var(--accent); background: var(--panel); border-radius: 0 10px 10px 0; padding: 12px 14px; color: var(--dim); font-size: 15px; min-width: 0; }
+  .key b { display: block; color: var(--ink); font-size: 16px; margin-bottom: 4px; }
+  h2 { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.01em; }
+  .sub { color: var(--dim); margin: 0 0 22px; max-width: 720px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 18px 16px; }
+  .card h3 { margin: 0 0 6px; font-size: 17px; }
+  .card p { margin: 0; color: var(--dim); font-size: 15px; }
+  .card .tag { display: inline-block; font: 600 11px ui-monospace, monospace; letter-spacing: .04em; text-transform: uppercase;
+               color: var(--accent); background: var(--accent-soft); border-radius: 4px; padding: 2px 6px; margin-bottom: 10px; }
+  a.card { text-decoration: none; color: inherit; transition: border-color .15s; }
+  a.card:hover { border-color: var(--accent); }
+
+  .diagram { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; overflow-x: auto; }
+  .diagram pre.mermaid { margin: 0; background: none; text-align: center; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .two > *, .cards > * { min-width: 0; }
+  @media (max-width: 760px) { .two { grid-template-columns: 1fr; } .hero svg.moon { width: 220px; height: 220px; right: -70px; top: -50px; opacity: .5; } }
+
+  ol.steps { list-style: none; counter-reset: s; padding: 0; margin: 0; display: grid; gap: 12px; }
+  ol.steps li { min-width: 0; counter-increment: s; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px 14px 58px; position: relative; }
+  ol.steps li::before { content: counter(s); position: absolute; left: 16px; top: 13px; width: 28px; height: 28px; border-radius: 50%;
+                        background: var(--accent); color: #fff; font-weight: 700; display: grid; place-items: center; font-size: 14px; }
+  ol.steps b { display: block; margin-bottom: 2px; }
+  pre.code { background: var(--code); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow-x: auto; margin: 8px 0 0; }
+  .m { font: 700 12px ui-monospace, monospace; }
+  .m.get { color: var(--get); } .m.post { color: var(--post); }
+
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  td, th { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; font-size: 13px; }
+  .tablebox { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; }
+
+  footer { margin-top: 56px; border-top: 1px solid var(--line); padding: 22px 0 40px; color: var(--dim); font-size: 14px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <svg class="moon" viewBox="0 0 200 200" aria-hidden="true">
+    <defs><radialGradient id="g" cx="40%" cy="38%" r="65%"><stop offset="0" stop-color="#f3efe6"/><stop offset="1" stop-color="#9c978c"/></radialGradient></defs>
+    <circle cx="100" cy="100" r="80" fill="url(#g)"/>
+    <circle cx="72" cy="78" r="13" fill="#00000018"/><circle cx="122" cy="120" r="19" fill="#00000014"/>
+    <circle cx="128" cy="68" r="8" fill="#00000016"/><circle cx="84" cy="136" r="7" fill="#00000012"/>
+    <circle cx="100" cy="100" r="80" fill="none" stroke="#ff8a3d" stroke-width="1.5" stroke-dasharray="3 7" opacity=".7"/>
+  </svg>
+  <div class="wrap">
+    <h1>LunarLink</h1>
+    <p class="lead">A framework for Moon Sweepers plugins that reload while the game runs. Write a new plugin or convert one you have; rebuild it, and the game switches to the new code within a frame, with no restart.</p>
+    <div class="btns">
+      <a class="btn main" href="HOT_PLUGINS.html">Write a hot plugin</a>
+      <a class="btn" href="api.html">API reference</a>
+      <a class="btn" href="https://github.com/swheettaos/lunarlink/wiki">Wiki</a>
+      <a class="btn" href="https://github.com/swheettaos/lunarlink/releases/latest">Download</a>
+      <a class="btn" href="https://github.com/swheettaos/lunarlink">GitHub</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section class="keys">
+  <div class="key"><b>Optional for players</b>A plugin written to the contract is still a normal BepInEx plugin. Without LunarLink it runs from <code>BepInEx/plugins/</code> like any other.</div>
+  <div class="key"><b>Hot where you want it</b>Put the same DLL in <code>BepInEx/hot/</code> with LunarLink installed, and it reloads in place: patches, endpoints and state carried across.</div>
+  <div class="key"><b>LunarLink eats its own cooking</b>Its API, performance tools, F9 window and updater are hot modules too. Reload any of them, or turn one off and it leaves memory, until you turn it back on.</div>
+  <div class="key"><b>Off means gone from memory</b>Turning a hot plugin off unloads it: its code, patches and endpoints leave the game, no restart. BepInEx can only skip a plugin at the next start.</div>
+</section>
+
+<section>
+  <h2>What it does</h2>
+  <p class="sub">A hot-reload framework first. Everything else LunarLink does is built as hot plugins on top of it, so it reloads too.</p>
+  <div class="cards">
+    <div class="card"><span class="tag">Hot-reload framework</span><h3>Reload without restarting</h3>
+      <p>Write new plugins, or convert the ones you have, to a short contract. Rebuild, and the game runs the new code within
+         a frame. Disable one and it's unloaded from memory. The same DLL still ships as a normal BepInEx plugin.</p></div>
+    <div class="card"><span class="tag">HTTP gateway</span><h3>Read and change the game</h3>
+      <p>Structures, belts, terrain, capsules, production, power and robots. Build, remove, move the player and the camera,
+         check a base's health, host crew games. JSON from a script, a browser or another tool.</p></div>
+    <div class="card"><span class="tag">Plugin manager</span><h3>Every plugin, from the game</h3>
+      <p>F9 shows your hot plugins with their state and errors, and your regular BepInEx plugins with versions and what
+         needs them: on or off for the next start, no moving files by hand. LunarLink updates itself from there too.</p></div>
+    <div class="card"><span class="tag">Updates</span><h3>LunarLink and your plugins, from the game</h3>
+      <p>F9's UPDATES tab checks when you ask (or at every game start, if you tick that) and shows a count when something's new: LunarLink's releases, its single modules as built from main, and any plugin
+         that names where its builds are (<code>UpdateFeed()</code>, on GitHub or any HTTPS host). SHA-256 checked. Only the
+         core ever needs a restart: modules and hot plugins update in place.</p></div>
+    <div class="card"><span class="tag">MCP</span><h3>Ask an AI assistant</h3><p>An MCP server turns every endpoint, plugins' included, into a tool for Claude or any MCP client: "is my base working?", "which catchers are full?". Reads only unless you allow more.</p></div>
+    <div class="card"><span class="tag">Performance</span><h3>Find what eats the frame</h3>
+      <p>Unity's own counters at almost no cost, stopwatches on any method, a component census, and fps fixes for big
+         bases.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>How it fits together</h2>
+  <p class="sub">LunarLink is the hub. A small core loads once at game start; your plugins hook into it in three ways, and every endpoint, LunarLink's own included, goes through the same route table, the same <code>allow-writes</code> check and the same <code>/help</code> list.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  client["Your script,<br/>browser or tool"]
+  subgraph core["LunarLink core · loads once"]
+    direction TB
+    server["HTTP server<br/>+ frame pump"]
+    routes["Route table<br/>method · allow-writes · /help"]
+    loader["Hot loader"]
+    server --> routes
+  end
+  subgraph hot["BepInEx/hot/ · reloads in place"]
+    direction TB
+    mods["LunarLink.Api · .Perf · .Window<br/>LunarLink's own endpoints, F9"]
+    yours["Your hot plugin<br/>Start · Stop · Update<br/>HandleHttp · HttpHelp"]
+  end
+  subgraph normal["BepInEx/plugins/ · loads once"]
+    np["A normal BepInEx plugin<br/>public HandleHttp · HttpHelp"]
+  end
+  game[("The game<br/>MoonFramework · Harmony")]
+  client -- "HTTP :8765" --> server
+  routes -- "its endpoints" --> mods
+  routes -- "a path no endpoint has" --> yours
+  yours -- "null: not mine" --> np
+  loader -. "Start(state) · Stop() · Update()" .-> hot
+  mods --> game
+  yours --> game
+  np --> game
+</pre></div>
+  <div class="cards" style="margin-top:14px">
+    <div class="card"><span class="tag">1 · Hot plugin</span><h3>Reloads while you play</h3>
+      <p>A DLL in <code>BepInEx/hot/</code> with <code>Start(state)</code> and <code>Stop()</code>. LunarLink drives it every frame, hands state across reloads, and routes it any request no endpoint took. No reference to LunarLink needed.</p></div>
+    <div class="card"><span class="tag">2 · Normal plugin</span><h3>Adds endpoints, no reload</h3>
+      <p>Any BepInEx plugin can answer HTTP: give its plugin class a public <code>HandleHttp</code> (return <code>null</code> for "not mine") and <code>HttpHelp</code>. Its endpoints show in <code>/help</code> and F9, and F9 turns it on or off for the next start.</p></div>
+    <div class="card"><span class="tag">3 · Both</span><h3>One DLL, two ways</h3>
+      <p>Write it as a hot plugin and add a small host class: players run it as a normal plugin without LunarLink, you reload it hot while you work. Its endpoints answer the same either way.</p></div>
+    <div class="card"><span class="tag">Outside</span><h3>Scripts and tools</h3>
+      <p>Anything that speaks HTTP: <code>curl</code>, Python, a browser, another program. Reads are GET; changes are POST and need <code>allow-writes</code>. Another machine needs the access key.</p></div>
+  </div>
+  <p style="margin-top:14px"><a href="https://github.com/swheettaos/lunarlink/wiki/How-It-Works">How a request and a reload run, step by step →</a></p>
+</section>
+
+<section>
+  <h2>The hot-plugin model</h2>
+  <p class="sub">A hot plugin is a plain class LunarLink finds by its method names, with no reference to LunarLink. Each build loads into its own context; on a reload the old copy's <code>Stop()</code> undoes everything and hands over its state, and the new copy's <code>Start(state)</code> picks it up. Leftover patches are taken out, endpoints removed and old copies freed.</p>
+  <div class="two">
+    <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  participant L as LunarLink
+  participant Old as Old copy
+  participant New as New copy
+  L->>Old: Stop()
+  Old-->>L: state to keep
+  L->>L: remove leftovers, unload
+  L->>New: load the new build
+  L->>New: Start(state)
+  Note over New: Update() every frame
+</pre></div>
+    <pre class="code" style="margin:0">public class Main
+{
+    int starts;
+
+    public void Start(string state)
+    {
+        int.TryParse(state, out starts);
+        starts++;
+        // patch, register, subscribe...
+    }
+
+    public string Stop()
+    {
+        // undo everything Start did
+        return starts.ToString();
+    }
+
+    public void Update() { }
+
+    // optional: where your builds are, so LunarLink can update it
+    public string UpdateFeed() => "github:you/yourplugin";
+
+    public string HandleHttp(string method,
+        string path, NameValueCollection q,
+        string body) =>
+        path == "/hello"
+            ? "{\"starts\":" + starts + "}"
+            : null;
+}</pre>
+  </div>
+  <p style="margin-top:14px"><a href="HOT_PLUGINS.html">The contract, the rules and shipping →</a> &nbsp; <a href="HOT_PLUGINS.html#converting-an-existing-plugin">Convert a plugin you have →</a> &nbsp; <a href="https://github.com/swheettaos/lunarlink/wiki/Plugin-Examples">More examples →</a></p>
+</section>
+
+<section>
+  <h2>Start in five minutes</h2>
+  <p class="sub">You only need BepInEx 6 (IL2CPP). MoonFramework is optional: LunarLink uses it for its power fix and for plugins that add buildings.</p>
+  <ol class="steps">
+    <li><b>Install it, with the game closed</b>Download <code>LunarLink-&lt;version&gt;.zip</code> from the <a href="https://github.com/swheettaos/lunarlink/releases/latest">latest release</a> and unzip it into the game's folder (the one that holds <code>BepInEx/</code>). Or build it from source with the .NET 8 SDK:
+      <pre class="code">git clone https://github.com/swheettaos/lunarlink.git
+cd lunarlink && ./build.sh --install</pre></li>
+    <li><b>Start the game and load a moon</b>LunarLink starts answering once the loading screen is gone.</li>
+    <li><b>Ask it something</b>
+      <pre class="code">curl -s 127.0.0.1:8765/status
+curl -s "127.0.0.1:8765/structures?x=0&amp;y=2000&amp;z=0&amp;r=30"</pre></li>
+    <li><b>See everything it can do</b>Open <code>http://127.0.0.1:8765/help.html</code> in a browser, or press <b style="display:inline">F9</b> in the game.</li>
+    <li><b>Put your plugins in the right folder</b>Hot-compatible plugins (their docs say they reload in place) go in <code>BepInEx/hot/</code> and turn on in F9; every other plugin stays in <code>BepInEx/plugins/</code> as usual. <a href="https://github.com/swheettaos/lunarlink/wiki/Installing-Plugins">Which is which →</a></li>
+    <li><b>Allow changes when you want them</b>Create <code>BepInEx/plugins/LunarLink/allow-writes</code>. Without it, everything that would change the game is refused.</li>
+  </ol>
+</section>
+
+<section>
+  <h2>The HTTP gateway in one table</h2>
+  <p class="sub">One pattern for everything. Every change is a POST and needs <code>allow-writes</code>; the <code>/check</code> endpoints ask the game without changing anything.</p>
+  <div class="tablebox"><table>
+    <tr><th>Request</th><th>Means</th><th>For example</th></tr>
+    <tr><td><span class="m get">GET</span> <code>/thing</code></td><td>List it, filtered by query</td><td><code>/structures?kind=99</code>, <code>/belts</code>, <code>/robots</code></td></tr>
+    <tr><td><span class="m post">POST</span> <code>/thing/check</code></td><td>Would this change work?</td><td><code>/belts/check</code>, <code>/structures/check</code></td></tr>
+    <tr><td><span class="m post">POST</span> <code>/thing/create</code></td><td>Make it</td><td><code>/belts/create</code></td></tr>
+    <tr><td><span class="m post">POST</span> <code>/thing/modify</code></td><td>Change it</td><td><code>/player/modify?x=&amp;y=&amp;z=</code></td></tr>
+    <tr><td><span class="m post">POST</span> <code>/thing/remove</code></td><td>Remove it, the game's refund paid</td><td><code>/structures/remove?ids=41001</code></td></tr>
+  </table></div>
+  <p style="margin-top:14px"><a href="api.html">Every endpoint, searchable →</a></p>
+</section>
+
+<section>
+  <h2>Read more</h2>
+  <div class="cards">
+    <a class="card" href="api.html"><h3>API reference</h3><p>Every endpoint LunarLink serves, searchable and grouped by area.</p></a>
+    <a class="card" href="HOT_PLUGINS.html"><h3>Writing a hot plugin</h3><p>The contract, the rules, building, reloading and shipping.</p></a>
+    <a class="card" href="HOT_RELOAD_PLAN.html"><h3>How hot reloading works</h3><p>The design, and why it's built the way it is.</p></a>
+    <a class="card" href="https://github.com/swheettaos/lunarlink/wiki/Updates"><h3>Updates</h3><p>How LunarLink updates itself, and how your plugin can update itself with one method.</p></a>
+    <a class="card" href="https://github.com/swheettaos/lunarlink/wiki/MCP"><h3>MCP server</h3><p>Let Claude or another AI assistant use the game through LunarLink: set-up and what to ask.</p></a>
+    <a class="card" href="https://github.com/swheettaos/lunarlink/wiki"><h3>The wiki</h3><p>Installing, settings, troubleshooting, the F9 window, performance tools.</p></a>
+  </div>
+</section>
+
+</main>
+
+<footer><div class="wrap">
+  <span>LunarLink is licensed under the <a href="https://github.com/swheettaos/lunarlink/blob/main/LICENSE">GPL-3.0</a>.</span>
+  <a href="https://github.com/swheettaos/lunarlink">Source</a>
+  <a href="https://github.com/swheettaos/lunarlink/issues/new/choose">Report a problem</a>
+</div></footer>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs";
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  mermaid.initialize({ startOnLoad: true, theme: dark ? "dark" : "neutral", fontFamily: "system-ui, sans-serif" });
+</script>
+</body>
+</html>

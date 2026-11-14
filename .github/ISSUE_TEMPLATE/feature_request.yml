@@ -1,0 +1,46 @@
+name: Feature request
+description: An endpoint, a setting or a change you'd like
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: want
+    attributes:
+      label: What you'd like
+      description: What it would do, as you'd use it.
+      placeholder: "An endpoint that lists ... so a script can ..."
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What you're trying to do, and what's in the way today.
+    validations:
+      required: true
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part
+      options:
+        - The API (a new or changed endpoint)
+        - Hot plugins
+        - The F9 window
+        - Performance tools
+        - Documentation or the wiki
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: shape
+    attributes:
+      label: How it might look
+      description: Optional. For an endpoint, the request and the answer you'd expect (reads are GET; changes are POST /thing/create|modify|remove).
+      placeholder: |
+        GET /thing?x= -> {"ok":true, ...}
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Helping
+      options:
+        - label: I could send a pull request for this

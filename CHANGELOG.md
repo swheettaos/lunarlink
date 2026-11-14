@@ -1,0 +1,80 @@
+# Changelog
+
+Each release's section is its notes on the GitHub releases page (`tools/release.sh` copies it there). Only a release that
+changes the core needs a game restart; modules and hot plugins always update in place.
+
+## 1.0.0
+
+- **An MCP server** (`mcp/`), so an AI assistant (Claude Desktop, Claude Code, any MCP client) can use the running
+  game: its tools are made from `GET /help?details=1`, plugins' endpoints included; reads only unless started with
+  `--allow-writes`. Every tool can cut its answer down (`fields`, `where`, `limit`, `count`), and
+  `lunarlink_request` calls any endpoint by path. Runs outside the game with `uvx`; see `mcp/README.md` and the wiki's MCP page.
+- **Check for updates at game start** (F9 → UPDATES, a checkbox; `POST /update/modify?auto=1`): off by default, so
+  checking stays manual; ticked, LunarLink checks once by itself at every game start.
+- **The UPDATES tab shows when something has an update:** an orange count on its name (**UPDATES ●2**) for the release,
+  modules and plugins with a newer version.
+- **A cleaner F9 window**, in the style of Quantum Conveyors' menus: a cream window with rounded rows, buttons and tab
+  pills, a soft gradient on each row (orange for what's running or has an update), a centred title, and a "?" whose
+  tooltip says what each tab is for.
+
+## 0.5.0
+
+- **Less in the core:** the normal BepInEx plugins' management (listing, on/off for the next start, its checks and the
+  `/plugins/*` endpoints) moved into the `LunarLink.Window` module, so it changes without a core update. `/plugins/*`
+  answers once a moon is loaded, like the other module endpoints.
+
+## 0.4.1
+
+- **F9's BEPINEX PLUGINS tab no longer loads a plugin twice:** turning on a normal plugin that already runs hot from
+  `BepInEx/hot/` is refused, with what to do instead (`/plugins/enable` refuses it too).
+- A plugin turned on by mistake can be turned back off before the restart (a **Disable** button on "on from next start").
+
+## 0.4.0
+
+- **Plugins can update themselves.** A plugin, hot or normal, answers `string UpdateFeed()` with `github:owner/repo` or
+  any public HTTPS address of an update file (version, notes, and each file with its SHA-256). F9's UPDATES tab shows
+  it, and **Update** installs only its own DLLs: a hot plugin reloads in place, a normal one after a restart. Also
+  `POST /update/apply?plugin=<name>`.
+- A module built for a newer core now says **needs a newer core**, and that it comes with the next LunarLink release.
+- **The updater is a module**, `LunarLink.Update`, so fixes to it come through the module channel like any module's;
+  it can update itself. The core keeps only the step that finishes a core update at game start. With the module off,
+  F9's UPDATES tab says so.
+
+## 0.3.0
+
+- **Module channel.** Every push to main is built on GitHub and the modules that changed are published to the
+  `modules` prerelease. F9's UPDATES tab lists each module: a newer build gets an **Update** button and reloads in place,
+  no release or restart needed. A build made for a newer core waits for the next release.
+- Updates have their own tab in F9, UPDATES.
+- After a core update and the restart it needs, the game checks once more, so newer module builds are offered.
+- LunarLink no longer builds against MoonFramework (Perf's power fix finds it by name).
+- `manifest.json` records each module's source fingerprint.
+
+## 0.2.0
+
+- **Updates from the game.** F9 checks GitHub for LunarLink's latest release (only when you press
+  Check for updates) and installs it: the download is checked against GitHub's SHA-256; if only the modules changed
+  they reload in place, and if the core changed it's put in place for the next start (restart to finish). Also
+  `POST /update/check`, `GET /update` and `POST /update/apply`.
+- Releases carry `manifest.json` (the version and a fingerprint of the core) so the updater knows whether a restart is
+  needed.
+
+## 0.1.0
+
+The first release.
+
+- **Hot plugins.** DLLs in `BepInEx/hot/` load into their own collectible load context and reload in place while the
+  game runs: the old copy's `Stop()` hands its state to the new copy's `Start(state)`, leftover Harmony patches and
+  endpoints are taken out, and old copies are freed. Turning one off unloads it from memory. A plugin needs no
+  reference to LunarLink and still ships as a normal BepInEx plugin (`samples/HelloHot`).
+- **LunarLink's own features are hot modules:** `LunarLink.Api` (the endpoints), `LunarLink.Perf` (measuring and fps
+  fixes) and `LunarLink.Window` (the F9 window). They're on unless you turn them off.
+- **The F9 window:** hot plugins (enable, disable, reload, reload changed, rescan), normal BepInEx plugins (on or off
+  for the next start, with what needs them) and every endpoint.
+- **The HTTP gateway** on `127.0.0.1:8765`: 69 endpoints for the world, bases, building, the player and camera, the
+  game, hosting, the game's code and performance, each described with parameters, an example and a real answer
+  (`/help.html`, `docs/api.html`). Plugins, hot or normal, can add their own with `HandleHttp`.
+- **Safe by default:** this machine only unless you set an address and an access key; nothing changes the game without
+  the `allow-writes` file.
+- **Freeze log:** `requests.log` records every request, and a watcher writes `MAIN THREAD STUCK` with the last 400
+  steps when a frame takes over 3 s.

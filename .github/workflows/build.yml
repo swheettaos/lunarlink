@@ -1,0 +1,57 @@
+name: build
+# Builds the core and its modules on GitHub's runners, against the DLLs in the private references repo (the game's
+# interop assemblies and BepInEx 6.0.0-be.791; tools/refs.sh refreshes them). A fork or a pull request from one has no
+# key to that repo, so the build is skipped there: build locally with ./build.sh against your own game.
+# On main, the modules that changed are then published to the module channel (the "modules" prerelease), which the
+# in-game updater offers.
+on:
+  push:
+    branches: [main]
+    paths: [src/**, samples/**, Directory.Build.props, build.sh, .github/workflows/build.yml]
+  workflow_dispatch:
+permissions:
+  contents: write          # the module channel (tools/publish-modules.sh)
+concurrency: build         # one publish at a time
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      REFS_KEY: ${{ secrets.REFS_DEPLOY_KEY }}
+      REFS_REPO: ${{ vars.REFS_REPO || 'swheettaos/moonsweepers-refs' }}
+    steps:
+      - name: No build references here
+        if: env.REFS_KEY == ''
+        run: echo "::notice::The build references are private, so this build is skipped. Build locally with ./build.sh against your own game (see CONTRIBUTING on the wiki)."
+      - uses: actions/checkout@v7
+        if: env.REFS_KEY != ''
+        with:
+          fetch-depth: 0     # the module channel names the commit that last changed each module
+      - name: Check out the build references (private)
+        if: env.REFS_KEY != ''
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.REFS_REPO }}
+          ssh-key: ${{ secrets.REFS_DEPLOY_KEY }}
+          path: refs
+      - uses: actions/setup-dotnet@v6
+        if: env.REFS_KEY != ''
+        with:
+          dotnet-version: 8.0.x
+      - name: Build
+        if: env.REFS_KEY != ''
+        run: MOON_GAME_DIR="$GITHUB_WORKSPACE/refs" ./build.sh
+      - name: Keep the build
+        if: env.REFS_KEY != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: lunarlink-${{ github.sha }}
+          path: |
+            src/LunarLink/bin/Release/net6.0/LunarLink.dll
+            src/LunarLink/bin/Release/net6.0/manifest.json
+            src/LunarLink.*/bin/Release/net6.0/LunarLink.*.dll
+          if-no-files-found: error
+      - name: Publish changed modules
+        if: env.REFS_KEY != '' && github.ref == 'refs/heads/main' && github.repository == 'swheettaos/lunarlink'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: tools/publish-modules.sh

@@ -1,0 +1,32 @@
+<!-- Shared by every project here: the core, its hot modules and the samples. Each .csproj only names itself. -->
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <InformationalVersion Condition="'$(InformationalVersion)' == ''">dev</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <GameDir Condition="'$(GameDir)' == ''">$(HOME)/.local/share/Steam/steamapps/common/Moon Sweepers</GameDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="$(GameDir)/BepInEx/core/BepInEx.Core.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/core/0Harmony.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/core/SemanticVersioning.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/core/BepInEx.Unity.IL2CPP.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/core/Il2CppInterop.Runtime.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/core/Il2CppInterop.Common.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/core/Iced.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/interop/Il2Cppmscorlib.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/interop/UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/interop/Assembly-CSharp.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/interop/com.rlabrecque.steamworks.net.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/interop/Unity.TextMeshPro.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/interop/UnityEngine.UI.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/interop/Unity.InputSystem.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/interop/UnityEngine.UIModule.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/interop/UnityEngine.TextRenderingModule.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/interop/UnityEngine.PhysicsModule.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/interop/UnityEngine.AudioModule.dll" Private="false" />
+  </ItemGroup>
+</Project>

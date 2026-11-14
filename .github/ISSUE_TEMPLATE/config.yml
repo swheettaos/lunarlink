@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Wiki
+    url: https://github.com/swheettaos/lunarlink/wiki
+    about: Installing, settings, using the API, hot plugins, troubleshooting
+  - name: API reference
+    url: https://swheettaos.github.io/lunarlink/api.html
+    about: Every endpoint, searchable

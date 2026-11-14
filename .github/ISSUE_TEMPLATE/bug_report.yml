@@ -1,0 +1,63 @@
+name: Bug report
+description: Something doesn't work as it should - an endpoint, a reload, the F9 window, a freeze
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting it. The [Troubleshooting](https://github.com/swheettaos/lunarlink/wiki/Troubleshooting) page covers the common problems; if it's not there, tell us below.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+      placeholder: |
+        I called POST /structures/remove?ids=41001 and expected the structure to go, but ...
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to make it happen
+      description: The steps, or the request and its answer if it was an API call.
+      placeholder: |
+        1. Load a moon
+        2. curl -s -X POST "127.0.0.1:8765/..."
+        3. The answer was: {...}
+    validations:
+      required: true
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part
+      options:
+        - The API (an endpoint)
+        - A hot plugin (loading, reloading, enable/disable)
+        - The F9 window
+        - Normal BepInEx plugins (the BEPINEX PLUGINS tab)
+        - The game froze or crashed
+        - Building or installing
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        The lines around the problem from `BepInEx/LogOutput.log`, and after a freeze the end of `BepInEx/plugins/LunarLink/requests.log` (the `MAIN THREAD STUCK` part if there is one).
+      render: text
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: LunarLink (the "version" GET /status reports), BepInEx, MoonFramework, and the game.
+      placeholder: "LunarLink 2026-11-13 15:34:00, BepInEx 6.0.0-be.791, MoonFramework 0.7.8"
+    validations:
+      required: true
+  - type: textarea
+    id: mods
+    attributes:
+      label: Other mods
+      description: The other plugins you run (the BEPINEX PLUGINS tab in F9, or GET /plugins, lists them).

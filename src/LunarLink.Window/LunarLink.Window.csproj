@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../LunarLink/LunarLink.csproj" Private="false" />
+  </ItemGroup>
+</Project>
