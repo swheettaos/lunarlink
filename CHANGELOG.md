@@ -3,7 +3,7 @@
 Each release's section is its notes on the GitHub releases page (`tools/release.sh` copies it there). Only a release that
 changes the core needs a game restart; modules and hot plugins always update in place.
 
-## Unreleased
+## 1.2.0
 
 - **Normal BepInEx plugins can go in `BepInEx/hot/` (experimental):** a plugin not written for LunarLink runs *wrapped* by the new
   **LunarLink.Wrap** module. It loads where BepInEx would load it, and F9's Reload and Disable work on it: its own
