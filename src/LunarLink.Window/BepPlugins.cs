@@ -67,7 +67,7 @@ namespace LunarLink
         internal static void TakeOver(string state)
         {
             enabledNow.Clear();
-            foreach (var f in (state ?? "").Split('\n')) if (f.Length > 0) enabledNow.Add(f);
+            foreach (var f in (state ?? "").Split('\n')) if (f.Length > 0 && !f.StartsWith("#")) enabledNow.Add(f);
         }
 
         // Returns null when done, or why not.

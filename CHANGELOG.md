@@ -3,6 +3,11 @@
 Each release's section is its notes on the GitHub releases page (`tools/release.sh` copies it there). Only a release that
 changes the core needs a game restart; modules and hot plugins always update in place.
 
+## Unreleased
+
+- **The F9 window stays open through an update:** an update that reloads the window module (or any reload of it) used
+  to close the window, and its message with it; it now reopens on the same tab, so the update's result shows.
+
 ## 1.1.0
 
 - **A support file for bug reports:** open `http://127.0.0.1:8765/support` (or F9 → **Support file**) and LunarLink

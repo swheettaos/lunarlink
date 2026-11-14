@@ -23,8 +23,11 @@ namespace LunarLink
     // The hot module: the window is driven from here, and Stop() closes it (and removes the EventSystem it made).
     public class WindowModule
     {
-        public void Start(string state) { BepPlugins.TakeOver(state); BepPlugins.Routes(); }
-        public string Stop() { HotWindow.Stop(); return BepPlugins.Handover(); }
+        // what a reload hands over: whether the window was open and on which tab (a "#window" line), then the BepInEx
+        // plugins turned on this session; an update that reloads this module reopens the window where it was, so its
+        // result shows
+        public void Start(string state) { BepPlugins.TakeOver(state); HotWindow.TakeOver(state); BepPlugins.Routes(); }
+        public string Stop() { var open = HotWindow.Handover(); HotWindow.Stop(); return open + BepPlugins.Handover(); }
         public void Update() => HotWindow.Update();
         public void LateUpdate() => HotWindow.LateUpdate();
     }
@@ -62,6 +65,7 @@ namespace LunarLink
 
         internal static void Update()
         {
+            if (reopenTab >= 0 && layer == null) { tab = reopenTab; reopenTab = -1; Open(); message = "The window reloaded with the new build"; Draw(true); return; }
             var kb = Keyboard.current; if (kb == null) return;
             bool typing = false; try { typing = MoonCleaners.MoonInput.Typing; } catch { }   // not while typing in chat
             if (!typing && Pressed(kb)) { if (layer == null) Open(); else Close(); return; }
@@ -97,6 +101,17 @@ namespace LunarLink
         static GameObject ownEventSystem;
 
         // the module stopping (a reload, or turned off): the window closes and the cursor goes back
+        // a reload: open, which tab, and when (a copy started much later, say turned off and on again, doesn't reopen)
+        static int reopenTab = -1;
+        internal static string Handover() => layer != null ? "#window " + tab + " " + DateTime.UtcNow.Ticks + "\n" : "";
+        internal static void TakeOver(string state)
+        {
+            var line = (state ?? "").Split('\n').FirstOrDefault(l => l.StartsWith("#window "));
+            var p = line?.Split(' ');
+            if (p != null && p.Length == 3 && int.TryParse(p[1], out var t) && long.TryParse(p[2], out var at)
+                && DateTime.UtcNow - new DateTime(at, DateTimeKind.Utc) < TimeSpan.FromSeconds(15)) reopenTab = t;
+        }
+
         internal static void Stop()
         {
             if (layer != null) Close();
