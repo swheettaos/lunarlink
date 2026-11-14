@@ -39,7 +39,8 @@ upload = []
 for name, src in m["modules"].items():
     prev = old.get("modules", {}).get(name)
     version = m.get("moduleVersions", {}).get(name)
-    if prev and prev.get("sourceHash") == src and not core_changed and "all" not in force and name not in force:
+    # unchanged, unless forced or its version moved on (a new release renumbers every module: its DLL carries the number)
+    if prev and prev.get("sourceHash") == src and not core_changed and "all" not in force and name not in force and (prev.get("version") == version or not version):
         feed["modules"][name] = dict(prev, version=prev.get("version") or version); continue
     dll = f"src/{name}/bin/Release/net6.0/{name}.dll"
     data = open(dll, "rb").read()

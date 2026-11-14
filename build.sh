@@ -49,7 +49,8 @@ CORE_HASH=$(fingerprint src/LunarLink)
 # each module's version (its assembly version, which F9 and the updater show):
 #   a release (tools/release.sh sets STAMP "<x.y.z> (<time>)")  every module is x.y.z
 #   CI, with the module channel's modules.json in CHANNEL_JSON   a module the channel has from the same source keeps its
-#       version; a changed one counts up from the core's version: x.y.z, then x.y.z.1, x.y.z.2 ...
+#       version; a changed one counts up from the core's version: x.y.z, then x.y.z.1, x.y.z.2 ...; after a release
+#       (the core's version moved on) every module starts again at the new x.y.z
 #   a build here                                                 0.0.0.0, shown as "dev"
 VERSIONS_JSON=$(python3 - "$CORE_VERSION" "$CORE_HASH" "${STAMP:-}" "${CHANNEL_JSON:-}" "{$MODS_JSON}" <<'PY'
 import json, re, sys
@@ -61,7 +62,8 @@ for name, src in mods.items():
     if rel: out[name] = rel.group(1); continue
     if old is None: out[name] = "0.0.0.0"; continue
     prev = old.get("modules", {}).get(name) or {}; pv = prev.get("version")
-    if prev.get("sourceHash") == src and old.get("coreHash") == core: out[name] = pv or base; continue
+    # same source keeps its number, within the same release; a new release (the core's version moved on) starts at it
+    if prev.get("sourceHash") == src and old.get("coreHash") == core and pv and (pv == base or pv.startswith(base + ".")): out[name] = pv; continue
     if prev and not pv: pv = base             # listed before modules had versions
     if pv and (pv == base or pv.startswith(base + ".")):
         parts = pv.split("."); out[name] = base + "." + str((int(parts[3]) if len(parts) == 4 else 0) + 1)
