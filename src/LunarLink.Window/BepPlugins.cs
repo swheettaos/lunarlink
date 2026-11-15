@@ -12,6 +12,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using BepInEx;
 using BepInEx.Unity.IL2CPP;
 
@@ -22,6 +23,16 @@ namespace LunarLink
     {
         const string Off = ".disabled";
 
+        sealed class NameRecord
+        {
+            public string File { get; set; }
+            public string Guid { get; set; }
+            public string Name { get; set; }
+        }
+
+        static readonly List<NameRecord> nameCache = new List<NameRecord>();
+        static bool nameCacheLoaded;
+
         internal sealed class Entry
         {
             public string Name, Guid, Version, File, State; public bool Loaded, Self; public List<string> NeededBy = new List<string>();
@@ -30,14 +41,62 @@ namespace LunarLink
         static string Rel(string path) => Path.GetRelativePath(Paths.PluginPath, path).Replace('\\', '/');
         static string Abs(string file) => Path.GetFullPath(Path.Combine(Paths.PluginPath, file));
 
+        static string NameCachePath => Path.Combine(Paths.PluginPath, "LunarLink", "plugin-names.json");
+
+        static void LoadNameCache()
+        {
+            if (nameCacheLoaded) return;
+            nameCacheLoaded = true;
+            try
+            {
+                if (!System.IO.File.Exists(NameCachePath)) return;
+                var saved = JsonSerializer.Deserialize<List<NameRecord>>(System.IO.File.ReadAllText(NameCachePath));
+                if (saved != null) nameCache.AddRange(saved.Where(x => x != null && !string.IsNullOrEmpty(x.File) && !string.IsNullOrEmpty(x.Name)));
+            }
+            catch (Exception e)
+            {
+                nameCache.Clear();
+                Plugin.L.LogWarning("plugin name cache could not be read: " + e.Message);
+            }
+        }
+
+        static void SaveNameCache()
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(NameCachePath));
+                System.IO.File.WriteAllText(NameCachePath, JsonSerializer.Serialize(nameCache, new JsonSerializerOptions { WriteIndented = true }));
+            }
+            catch (Exception e) { Plugin.L.LogWarning("plugin name cache could not be saved: " + e.Message); }
+        }
+
+        static NameRecord CachedName(string file) => nameCache.FirstOrDefault(x => string.Equals(x.File, file, StringComparison.OrdinalIgnoreCase));
+
+        static bool RememberName(string file, string guid, string name)
+        {
+            if (string.IsNullOrEmpty(file) || string.IsNullOrEmpty(name)) return false;
+            var saved = CachedName(file);
+            if (saved == null)
+            {
+                nameCache.Add(new NameRecord { File = file, Guid = guid, Name = name });
+                return true;
+            }
+            if (saved.Guid == guid && saved.Name == name) return false;
+            saved.Guid = guid; saved.Name = name;
+            return true;
+        }
+
         // Every loaded plugin, plus every .dll.disabled under plugins/ that isn't one of them.
         internal static List<Entry> List()
         {
+            LoadNameCache();
+            bool cacheChanged = false;
             var list = new List<Entry>();
             var loaded = IL2CPPChainloader.Instance.Plugins.Values.ToList();
             foreach (var p in loaded)
             {
                 var file = Rel(p.Location);
+                cacheChanged |= RememberName(file, p.Metadata.GUID, p.Metadata.Name);
                 var e = new Entry { Name = p.Metadata.Name, Guid = p.Metadata.GUID, Version = p.Metadata.Version?.ToString(), File = file, Loaded = true,
                                     Self = p.Metadata.GUID == "lunarlink" };
                 e.State = System.IO.File.Exists(p.Location) ? "running" : System.IO.File.Exists(p.Location + Off) ? "off from next start" : "file gone";
@@ -52,11 +111,16 @@ namespace LunarLink
             {
                 var file = Rel(path.Substring(0, path.Length - Off.Length));
                 if (known.Contains(file)) continue;
-                list.Add(new Entry { Name = Path.GetFileNameWithoutExtension(file), File = file, State = "off" });
+                var saved = CachedName(file);
+                list.Add(new Entry { Name = saved?.Name ?? Path.GetFileNameWithoutExtension(file), Guid = saved?.Guid, File = file, State = "off" });
             }
             foreach (var file in enabledNow)
                 if (!known.Contains(file) && System.IO.File.Exists(Abs(file)))
-                    list.Add(new Entry { Name = Path.GetFileNameWithoutExtension(file), File = file, State = "on from next start" });
+                {
+                    var saved = CachedName(file);
+                    list.Add(new Entry { Name = saved?.Name ?? Path.GetFileNameWithoutExtension(file), Guid = saved?.Guid, File = file, State = "on from next start" });
+                }
+            if (cacheChanged) SaveNameCache();
             return list.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
