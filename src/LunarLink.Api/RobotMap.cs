@@ -1,6 +1,5 @@
 using System;
 using System.Reflection;
-using System.Text;
 using MoonCleaners;
 using UnityEngine;
 
@@ -14,14 +13,15 @@ namespace LunarLink
         static int Nearest(Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppStructArray<Vector3> centres, Vector3 dir)
         {
             dir.Normalize(); int best = -1; float bd = -2f;
-            for (int i = 0; i < centres.Length; i++) { var c = centres[i]; float d = c.x * dir.x + c.y * dir.y + c.z * dir.z; if (d > bd) { bd = d; best = i; } }
+            for (int i = 0; i < centres.Length; i++) { var c = centres[i]; float d = c.x * dir.x + c.y * dir.y + c.z * dir.z;
+                if (d > bd) { bd = d; best = i; } }
             return best;
         }
 
         public static string Robots(MoonWorld w)
         {
             var mi = typeof(MoonWorld).GetMethod("MapRobots", BindingFlags.Public | BindingFlags.Instance);
-            if (mi == null) return "{\"ok\":false,\"reason\":\"no MapRobots\"}";
+            if (mi == null) return Api.Result(false, "no MapRobots");
             var listType = mi.GetParameters()[0].ParameterType;               // Il2CppSystem.Collections.Generic.List<T>
             var list = Activator.CreateInstance(listType);
             mi.Invoke(w, new[] { list });
@@ -29,34 +29,36 @@ namespace LunarLink
             var item = listType.GetProperty("Item");
             var elem = listType.GetGenericArguments()[0];
             var regions = w.Regions; var centres = regions?.Centers;
-            var sb = new StringBuilder("{\"ok\":true,\"type\":").Append(J.S(elem.FullName)).Append(",\"count\":").Append(count).Append(",\"robots\":[");
+            var o = new JsonOut().Obj().Bool("ok", true).Str("type", elem.FullName).Num("count", count).Arr("robots");
             for (int i = 0; i < count; i++)
             {
                 object e = item.GetValue(list, new object[] { i });
-                if (i > 0) sb.Append(',');
-                sb.Append('{'); bool first = true; Vector3? pos = null;
+                o.Obj(); Vector3? pos = null;
                 foreach (var p in elem.GetProperties(BindingFlags.Public | BindingFlags.Instance))
                 {
                     if (p.GetIndexParameters().Length > 0 || p.Name == "Pointer" || p.Name == "ObjectClass" || p.Name == "WasCollected") continue;
                     object v; try { v = p.GetValue(e); } catch { continue; }
-                    string js = v switch
+                    switch (v)
                     {
-                        Vector3 v3 => J.V(v3), Vector2 v2 => "[" + J.F(v2.x) + "," + J.F(v2.y) + "]",
-                        int iv => iv.ToString(), long lv => lv.ToString(), float fv => J.F(fv), double dv => J.F(dv), bool bv => bv ? "true" : "false",
-                        string sv => J.S(sv), null => "null", _ => J.S(v.ToString()),
-                    };
-                    if (v is Vector3 pv && pos == null && pv.sqrMagnitude > 100f) pos = pv;
-                    if (!first) sb.Append(','); first = false;
-                    sb.Append(J.S(p.Name)).Append(':').Append(js);
+                        case Vector3 v3: o.Vec(p.Name, v3); if (pos == null && v3.sqrMagnitude > 100f) pos = v3; break;
+                        case Vector2 v2: o.Nums(p.Name, v2.x, v2.y); break;
+                        case int iv: o.Num(p.Name, iv); break;
+                        case long lv: o.Num(p.Name, lv); break;
+                        case float fv: o.Num(p.Name, fv); break;
+                        case double dv: o.Num(p.Name, dv); break;
+                        case bool bv: o.Bool(p.Name, bv); break;
+                        case null: o.Null(p.Name); break;
+                        default: o.Str(p.Name, v.ToString()); break;
+                    }
                 }
                 if (pos.HasValue && centres != null)
                 {
                     int r = regions.Find(pos.Value.normalized); if (r < 0) r = Nearest(centres, pos.Value);
-                    sb.Append(first ? "" : ",").Append("\"region\":").Append(r).Append(",\"regionComplete\":").Append(w.IsRegionComplete(r) ? "true" : "false");
+                    o.Num("region", r).Bool("regionComplete", w.IsRegionComplete(r));
                 }
-                sb.Append('}');
+                o.End();
             }
-            return sb.Append("]}").ToString();
+            return o;
         }
     }
 }

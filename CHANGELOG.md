@@ -3,6 +3,31 @@
 Each release's section is its notes on the GitHub releases page (`tools/release.sh` copies it there). Only a release that
 changes the core needs a game restart; modules and hot plugins always update in place.
 
+## 1.3.1
+
+- **The F9 window is rebuilt** in the look of Quantum Conveyors' menus, and fills the screen better. Four tabs:
+  **Hot Mods** (was HOT PLUGINS), **Mods** (was BEPINEX PLUGINS), **API** and **Updates**. Every row opens with
+  **+** to its details and buttons, one at a time; opening one scrolls just far enough to show it.
+- **Plugin settings in the window:** **Settings** on a hot mod's or a normal plugin's row opens its config on a page of
+  its own. A hot mod's **Reload** applies the changes at once; a normal plugin's wait for **Restart & Apply** (Windows
+  only for now: on Linux it says to restart by hand).
+- **API** groups the endpoints in a folder per path, named with the module or plugin that serves it.
+- **Updates** lists what has an update first, with **Update** on its row and a count on the tab (**Updates ●2**);
+  **Check for Updates** and **Check at Game Start** sit under the list.
+- **Lunar Link Keybind** in the window sets the key that opens it; **Lunar Link Modules** shows or hides LunarLink's own
+  modules.
+- **Restart & Apply works under Proton too** (Linux, the Steam Deck): it starts the game again with Proton's own wine
+  once the old one has closed, and writes what it did to `BepInEx/lunarlink-restart.log`.
+- **No error is hidden any more:** where LunarLink ignores an error on purpose (a game call that isn't there yet, a
+  best-effort cleanup), the first one at each place goes to the BepInEx log as "ignored at <file>:<line>", and the
+  support file lists every place with a count (`logs/lunarlink-ignored.txt`).
+- **Every JSON answer is written by one writer**, which puts in the commas, brackets and quotes itself. That fixed three
+  answers that could come out as broken JSON: `/lobby` when a lobby key couldn't be read, `/base/health` when the robot
+  map failed, and `/dev/call` when a call failed partway.
+- Inside: `Hot.cs`, `Support.cs` and `Updater.cs` are split by job (the folder, actions, loading and endpoints; the
+  report, logs and privacy; checking and installing), and the wiki's Home page now takes its opening from the README.
+  This release changes the core, so it needs one restart.
+
 ## 1.3.0
 
 - **Hot plugins can set up the world, like Mars Sweepers does,** and still reload mid-game (needs a restart once, for

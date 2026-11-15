@@ -21,7 +21,7 @@ flowchart TD
   p["A plugin to install"] --> lib{"Do other plugins<br/>need it as a library?"}
   lib -- "yes (MoonFramework...)" --> plug["BepInEx/plugins/<br/>as its own instructions say"]
   lib -- "no" --> q{"Want to reload it or<br/>turn it off while you play?"}
-  q -- "yes" --> hot["BepInEx/hot/<br/>then F9 → HOT PLUGINS → Enable"]
+  q -- "yes" --> hot["BepInEx/hot/<br/>then F9 → Hot Mods → Enable"]
   q -- "no" --> plug
   hot --> kind{"Hot-compatible?"}
   kind -- "yes" --> h1["Runs hot: reloads keep its state"]
@@ -49,23 +49,23 @@ way the wrapper can't undo still loads, but turning it off waits for a restart (
    (`BepInEx/hot/MarsSweepers/MarsSweepers.dll` with its files beside it).
 2. **Make sure it isn't also in `BepInEx/plugins/`.** A plugin in both folders would load twice, so LunarLink refuses
    the hot copy and says so. To move one that's already installed normally, see the table below.
-3. Start the game and turn it on in **F9 → HOT PLUGINS → Enable**. A new plugin starts off, so nothing runs just
+3. Start the game and turn it on in **F9 → Hot Mods → Enable**. A new plugin starts off, so nothing runs just
    because a file appeared. It stays on from then on.
 
 From then on: **Reload** in F9 loads a newer build without a restart, **Disable** stops it and unloads it, and if it
-says where its releases are, F9 → **UPDATES** keeps it up to date (see [[Updates]]).
+says where its releases are, F9 → **Updates** keeps it up to date (see [[Updates]]).
 
 ## Installing a normal plugin
 
 As without LunarLink: put it in `BepInEx/plugins/` (usually in its own folder) with the game closed, and start the game.
-F9 → **BEPINEX PLUGINS** then lists it with its version, and can turn it off or on for the next start.
+F9 → **Mods** then lists it with its version, and can turn it off or on for the next start.
 
 ## Moving a plugin between the folders
 
 | From → to | How |
 |---|---|
-| `plugins/` → `hot/` | With the game closed, move its DLL (or its folder) into `BepInEx/hot/`; start the game; F9 → HOT PLUGINS → **Enable** |
-| `hot/` → `plugins/` | F9 → HOT PLUGINS → **Disable** (it unloads at once); move its DLL into `BepInEx/plugins/`; restart |
+| `plugins/` → `hot/` | With the game closed, move its DLL (or its folder) into `BepInEx/hot/`; start the game; F9 → Hot Mods → **Enable** |
+| `hot/` → `plugins/` | F9 → Hot Mods → **Disable** (it unloads at once); move its DLL into `BepInEx/plugins/`; restart |
 
 See also: [[Hot Plugins]] (how loading and reloading work), [[Installing]] (LunarLink itself),
 [[Troubleshooting]].

@@ -1,6 +1,4 @@
 using System;
-using System.Globalization;
-using System.Text;
 using Il2CppInterop.Runtime;
 using MoonCleaners;
 using UnityEngine;
@@ -11,12 +9,15 @@ namespace LunarLink
     // and the game's own cleaning at a point.
     static class PlayerArea
     {
-        internal static void Start(string state)
+        internal static void Start()
         {
             Api.Get("/player", "The local player: pos, forward, pitch, heading, camera forward", r => Player());
-            Api.Post("/player/modify", "?x=&y=&z= : move the player there with the game's teleport (ignored while they're in a vehicle)", r => TeleportPlayer(r));
+            Api.Post("/player/modify",
+                "?x=&y=&z= : move the player there with the game's teleport (ignored while they're in a vehicle)",
+                r => TeleportPlayer(r));
             Api.Get("/camera", "Which camera draws: the game's or the observer camera, and where it is", r => CameraState());
-            Api.Post("/camera/modify", "?x=&y=&z=&tx=&ty=&tz=[&fov=][&hide=1] : the observer camera there, looking at t; hide=1 stops the game's camera drawing", r => CameraSet(r));
+            Api.Post("/camera/modify",
+                "?x=&y=&z=&tx=&ty=&tz=[&fov=][&hide=1] : the observer camera there, looking at t; hide=1 stops the game's camera drawing", r => CameraSet(r));
             Api.Post("/camera/remove", "Remove the observer camera and give the game's camera back", r => CameraOff());
             Api.Post("/message", "?text=[&ttl=15][&y=0.5][&size=20] : a line of text on screen; empty text hides it", r => ScreenMessage(r));
             Api.Post("/clean", "?x=&y=&z=&r=&a= : the game's own CleanAt round a point", r => Clean(Api.World, r));
@@ -25,8 +26,9 @@ namespace LunarLink
         // hand the camera back, show the look cards again and take the message down
         internal static void Stop()
         {
-            try { if (observerCam != null) CameraOff(); HideLookPanels(); } catch { }
-            if (msgLabel != null) { var layer = msgLabel.transform.parent != null ? msgLabel.transform.parent.gameObject : msgLabel; UnityEngine.Object.Destroy(layer); msgLabel = null; }
+            try { if (observerCam != null) CameraOff(); HideLookPanels(); } catch (System.Exception caught) { Quiet.Note(caught); }
+            if (msgLabel != null) { var layer = msgLabel.transform.parent != null ? msgLabel.transform.parent.gameObject
+                : msgLabel; UnityEngine.Object.Destroy(layer); msgLabel = null; }
         }
 
         internal static void LateUpdate()
@@ -35,17 +37,17 @@ namespace LunarLink
             try { HideLookPanels(); } catch (Exception e) { if (lookLogged != -2) { Plugin.L.LogWarning("look cards: " + e.Message); lookLogged = -2; } }
         }
 
-        static string CameraState() => observerCam == null ? "{\"camera\":\"game\"}"
-            : "{\"camera\":\"observer\",\"pos\":" + J.V(observerCam.transform.position) + ",\"forward\":" + J.V(observerCam.transform.forward) + "}";
+        static string CameraState() => observerCam == null ? new JsonOut().Obj().Str("camera", "game")
+            : new JsonOut().Obj().Str("camera", "observer").Vec("pos", observerCam.transform.position).Vec("forward", observerCam.transform.forward);
 
         static string Player()
         {
             var b = Api.Player;
             if (b == null) return Api.NoPlayer;
             var cam = Camera.main;
-            return "{\"pos\":" + J.V(b.transform.position) + ",\"forward\":" + J.V(b.transform.forward)
-                + ",\"pitch\":" + J.F(b.pitch) + ",\"lookPitch\":" + J.F(b.LookPitch) + ",\"heading\":" + J.V(b.heading)
-                + ",\"camForward\":" + (cam != null ? J.V(cam.transform.forward) : "null") + "}";
+            var o = new JsonOut().Obj().Vec("pos", b.transform.position).Vec("forward", b.transform.forward)
+                .Num("pitch", b.pitch).Num("lookPitch", b.LookPitch).Vec("heading", b.heading);
+            return cam != null ? o.Vec("camForward", cam.transform.forward) : o.Null("camForward");
         }
 
         // POST /player/modify?x=&y=&z= : move the local player there with the game's own teleport (lands on the surface above that point)
@@ -55,7 +57,7 @@ namespace LunarLink
             if (b == null) return Api.NoPlayer;
             var p = new Vector3(Api.Qf(req, "x", 0), Api.Qf(req, "y", 0), Api.Qf(req, "z", 0));
             b.Teleport(p, true);
-            return "{\"ok\":true,\"pos\":" + J.V(b.transform.position) + "}";
+            return new JsonOut().Obj().Bool("ok", true).Vec("pos", b.transform.position);
         }
 
         // Observer camera for recording (2026-11-03): ?x=&y=&z= (where it stands) &tx=&ty=&tz= (what it looks at)
@@ -75,7 +77,7 @@ namespace LunarLink
                 var cur = Camera.main;
                 if (cur != null && cur.cullingMask == 0 && goodMask != 0) cur.cullingMask = goodMask;
                 mainMask = -1; mainCam = null;
-                return "{\"ok\":true,\"camera\":\"game\",\"mask\":" + (cur != null ? cur.cullingMask : -1) + "}";
+                return new JsonOut().Obj().Bool("ok", true).Str("camera", "game").Num("mask", cur != null ? cur.cullingMask : -1);
             }
         }
 
@@ -96,8 +98,9 @@ namespace LunarLink
             observerCam.transform.rotation = Quaternion.LookRotation(target - pos, pos.normalized);
             cam.fieldOfView = Api.Qf(req, "fov", main != null ? main.fieldOfView : 60f);
             if (main != null && main.cullingMask != 0 && goodMask == 0) goodMask = main.cullingMask;
-            if (main != null && Api.Qi(req, "hide", 0) == 1 && mainMask == -1 && main.cullingMask != 0) { mainCam = main; mainMask = main.cullingMask; main.cullingMask = 0; }
-            return "{\"ok\":true,\"camera\":\"observer\",\"pos\":" + J.V(pos) + ",\"fov\":" + J.F(cam.fieldOfView) + "}";
+            if (main != null && Api.Qi(req, "hide", 0) == 1 && mainMask == -1 && main.cullingMask != 0) { mainCam = main;
+                mainMask = main.cullingMask; main.cullingMask = 0; }
+            return new JsonOut().Obj().Bool("ok", true).Str("camera", "observer").Vec("pos", pos).Num("fov", cam.fieldOfView);
         }
 
         // While the observer camera is on, the game's look-at info cards are kept hidden - the build moves the character
@@ -154,8 +157,9 @@ namespace LunarLink
                 {
                     var all = UnityEngine.Object.FindObjectsOfType(Il2CppType.Of<TMPro.TextMeshProUGUI>());
                     TMPro.TextMeshProUGUI src = null;
-                    for (int i = 0; i < all.Length && src == null; i++) { var t = all[i].Cast<TMPro.TextMeshProUGUI>(); if (t.gameObject.activeInHierarchy && t.canvas != null) src = t; }
-                    if (src == null) return "{\"ok\":false,\"reason\":\"no on-screen text to copy\"}";
+                    for (int i = 0; i < all.Length && src == null; i++) { var t = all[i].Cast<TMPro.TextMeshProUGUI>();
+                        if (t.gameObject.activeInHierarchy && t.canvas != null) src = t; }
+                    if (src == null) return Api.Result(false, "no on-screen text to copy");
                     // our own screen layer on top of everything (the game's canvases can be hidden or faded)
                     var layer = new GameObject("LunarLinkMessageLayer"); UnityEngine.Object.DontDestroyOnLoad(layer);
                     var cv = layer.AddComponent<Canvas>(); cv.renderMode = RenderMode.ScreenSpaceOverlay; cv.sortingOrder = 32000;
@@ -171,13 +175,14 @@ namespace LunarLink
                 rt.anchorMin = new Vector2(0.15f, y - 0.03f); rt.anchorMax = new Vector2(0.85f, y + 0.03f); rt.pivot = new Vector2(0.5f, 0.5f);
                 rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
                 var label = msgLabel.GetComponent<TMPro.TextMeshProUGUI>();
-                label.enableAutoSizing = false; label.fontSizeMin = size; label.fontSizeMax = size; label.fontSize = size;   // the copied text auto-sized to its box
+                // the copied text auto-sized to its box
+                label.enableAutoSizing = false; label.fontSizeMin = size; label.fontSizeMax = size; label.fontSize = size;
                 msgLabel.transform.localScale = Vector3.one;
                 label.text = text; msgLabel.SetActive(text.Length > 0); label.alpha = 1f; label.enabled = true;
                 float ttl = Api.Qf(req, "ttl", 15f); msgUntil = ttl > 0 ? Time.realtimeSinceStartup + ttl : 0f;
-                return "{\"ok\":true,\"copied\":" + J.S(msgSource) + ",\"screen\":[" + Screen.width + "," + Screen.height + "]}";
+                return new JsonOut().Obj().Bool("ok", true).Str("copied", msgSource).Nums("screen", Screen.width, Screen.height);
             }
-            catch (Exception ex) { msgLabel = null; return "{\"ok\":false,\"reason\":" + J.S(ex.Message) + "}"; }
+            catch (Exception ex) { msgLabel = null; return Api.Result(false, ex.Message); }
         }
 
 
@@ -185,10 +190,11 @@ namespace LunarLink
         // (the player's sweeping goes through it). Returns what the game returns (its count).
         static string Clean(MoonWorld w, Req req)
         {
-            float F(string k, float d) => float.TryParse(req.Query[k], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : d;
+            float F(string k, float d) => float.TryParse(req.Query[k], System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : d;
             var p = new Vector3(F("x", 0), F("y", 0), F("z", 0));
             int n = w.CleanAt(p, F("r", 4f), F("a", 1f));
-            return "{\"ok\":true,\"returned\":" + n + "}";
+            return new JsonOut().Obj().Bool("ok", true).Num("returned", n);
         }
 
     }

@@ -29,8 +29,8 @@ exactly as without LunarLink. How to tell which is which, and how to move one: *
 > to finish**. (A plugin installed the normal BepInEx way, in `BepInEx/plugins/`, needs a restart too; run it from
 > `BepInEx/hot/` and it doesn't.)
 
-**From the game:** press F9, and on the UPDATES tab press **Check for updates**. LunarLink asks GitHub for the latest
-release (only then, unless you tick **Check for updates at game start**) and, when there's a newer one, offers
+**From the game:** press F9, and on the Updates tab press **Check**. LunarLink asks GitHub for the latest
+release (only then, unless you turn on **Check at Game Start**) and, when there's a newer one, offers
 **Update**; the tab's name shows an orange count while anything has an update:
 
 ```mermaid
@@ -48,13 +48,13 @@ Modules you turned off stay off. Over HTTP it's `POST /update/check`, `GET /upda
 [[API Reference]]).
 
 **Module builds, between releases:** every change to `main` is built on GitHub, and the modules that changed are
-published to the module channel (the `modules` prerelease). The UPDATES tab lists each module; one with a newer build
+published to the module channel (the `modules` prerelease). The Updates tab lists each module; one with a newer build
 has an **Update** button: it's downloaded, checked against the SHA-256 in `modules.json` and reloaded in place, with no
 restart. A module built for a newer core than yours says **needs next release** and waits for it. After a core update,
 the game checks once more when it's back, so you get the module builds made since that release.
 
 **Plugins that update themselves:** a plugin that says where its builds are (`UpdateFeed()`, see
-[[Writing a Hot Plugin]]) gets a row on the UPDATES tab too, checked at the same time, from its GitHub releases or any
+[[Writing a Hot Plugin]]) gets a row on the Updates tab too, checked at the same time, from its GitHub releases or any
 public HTTPS address it names.
 
 **By hand:** unzip the new release over the old files with the game closed. Each release's notes say what changed

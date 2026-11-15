@@ -3,24 +3,20 @@
 // every request is answered on Unity's main thread (Pump.cs).
 // Uses a small TcpListener server (one request per connection) because HttpListener stalls under Proton.
 using System;
+using System.Text;
 using System.Collections.Concurrent;
 using System.Collections.Specialized;
-using System.Globalization;
 using System.Net;
-using System.Reflection;
 using System.Net.Sockets;
-using System.Text;
 using System.Threading;
 using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
-using Il2CppInterop.Runtime;
-using MoonCleaners;
 using UnityEngine;
 
 namespace LunarLink
 {
-    [BepInPlugin("lunarlink", "LunarLink", "1.3.0")]
+    [BepInPlugin("lunarlink", "LunarLink", "1.3.1")]
     // after MoonFramework (when it's there): a hot plugin's Boot() registers buildings from LunarLink's Load
     [BepInDependency("moonsweepers.framework", BepInDependency.DependencyFlags.SoftDependency)]
     public class Plugin : BasePlugin
@@ -34,10 +30,13 @@ namespace LunarLink
             Support.Init();                                            // the machine as Unity sees it, and the BepInEx log keeper
             AddComponent<Pump>();
             var address = Config.Bind("Server", "Address", "127.0.0.1",
-                "Where the API listens. 127.0.0.1 = this machine only (the default). This machine's address on your network (for example 192.168.1.20), or 0.0.0.0 for every network, lets other machines in: they must then send the Access key.").Value;
+                "Where the API listens. 127.0.0.1 = this machine only (the default). This machine's address on your network " +
+                    "(for example 192.168.1.20), or 0.0.0.0 for every network, lets other machines in: they must then send the " +
+                    "Access key.").Value;
             int port = Config.Bind("Server", "Port", 8765, "The API's port.").Value;
             AccessKey = Config.Bind("Server", "Access key", "",
-                "What another machine must send to use the API (header X-LunarLink-Key, or ?key=). Empty: other machines are refused. Requests from this machine never need it.").Value ?? "";
+                "What another machine must send to use the API (header X-LunarLink-Key, or ?key=). Empty: other machines are " +
+                    "refused. Requests from this machine never need it.").Value ?? "";
             var listener = Listen(address, port, out var listening);
             new Thread(() =>
             {
@@ -55,7 +54,8 @@ namespace LunarLink
             Pump.StartWatcher();
             // the hot plugin window's settings live here so they outlast the window module's reloads
             WindowShowModules = Config.Bind("Hot plugins", "Show LunarLink modules", false, "Whether the hot plugin window lists LunarLink's own modules too.");
-            WindowKey = Config.Bind("Hot plugins", "Window key", "F9", "Key that opens and closes the hot plugin window (an Input System key name, for example F9).");
+            WindowKey = Config.Bind("Hot plugins", "Window key", "F9",
+                "Key that opens and closes the hot plugin window (an Input System key name, for example F9).");
             Pump.Routes(); Hot.Routes();                                // the core's own endpoints, in the route table
             Updates.Finish();                                          // a core update installed last run: its modules into BepInEx/hot/
             try { Hot.LoadAll(); } catch (Exception e) { L.LogError("hot: " + e); }   // Boot() here: before MoonFramework's build menu
@@ -71,7 +71,8 @@ namespace LunarLink
         static TcpListener Listen(string address, int port, out string url)
         {
             if (port < 1 || port > 65535) { L.LogError("Server port " + port + " isn't a port; using 8765"); port = 8765; }
-            if (!IPAddress.TryParse((address ?? "").Trim(), out var ip)) { L.LogError("Server address \"" + address + "\" isn't an IP address; listening on 127.0.0.1"); ip = IPAddress.Loopback; }
+            if (!IPAddress.TryParse((address ?? "").Trim(), out var ip)) { L.LogError("Server address \"" + address
+                + "\" isn't an IP address; listening on 127.0.0.1"); ip = IPAddress.Loopback; }
             try
             {
                 var l = new TcpListener(ip, port); l.Start(64);
@@ -128,18 +129,20 @@ namespace LunarLink
                 if (!IPAddress.IsLoopback(from) && (AccessKey.Length == 0 || !SameKey(key, AccessKey)))
                 {
                     Pump.Journal("net: refused " + from + " " + req.Path + (AccessKey.Length == 0 ? " (no access key set)" : " (wrong or no key)"));
-                    Send(client, 403, AccessKey.Length == 0 ? "{\"error\":\"this API takes requests from other machines only with an access key, and none is set\"}"
-                                                            : "{\"error\":\"wrong or missing access key (X-LunarLink-Key header, or key=)\"}");
+                    Send(client, 403, Api.Error(AccessKey.Length == 0 ? "this API takes requests from other machines only with an access key, and none is set"
+                                                            : "wrong or missing access key (X-LunarLink-Key header, or key=)"));
                     return;
                 }
                 // the support file: written here, off the main thread, so it works at the main menu, with a module
                 // broken, and while the game is frozen
-                if (req.Method == "GET" && req.Path.TrimEnd('/') == "/support") { Pump.Journal("net: support file"); Send(client, 200, Support.Http(html)); return; }
+                if (req.Method == "GET" && req.Path.TrimEnd('/') == "/support") { Pump.Journal("net: support file");
+                    Send(client, 200, Support.Http(html)); return; }
                 Pump.Journal("net: queueing " + req.Path + " (queue had " + Pending.Count + ")");
                 Pending.Enqueue(new Job { Req = req, Client = client });
                 Pump.Journal("net: queued " + req.Path);
             }
-            catch (Exception e) { Pump.Journal("net: receive failed: " + e.Message); L.LogWarning("receive: " + e.Message); try { client.Close(); } catch { } }
+            catch (Exception e) { Pump.Journal("net: receive failed: " + e.Message); L.LogWarning("receive: " + e.Message);
+                try { client.Close(); } catch (System.Exception caught) { Quiet.Note(caught); } }
         }
 
         // compares every character, so the time taken doesn't tell how much of a guess was right
@@ -167,7 +170,7 @@ namespace LunarLink
                 Pump.Journal("net: sent");
             }
             catch (Exception e) { Pump.Journal("net: send failed: " + e.Message); L.LogWarning("send: " + e.Message); }
-            finally { try { client.Close(); } catch { } }
+            finally { try { client.Close(); } catch (System.Exception caught) { Quiet.Note(caught); } }
         }
 
         internal static int Served, Frames;

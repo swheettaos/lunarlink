@@ -246,6 +246,9 @@ module, `LunarLink.Window`, so window changes reload without a restart; its sett
 - buttons on each row: **Enable/Disable** and **Reload**;
 - along the top: **Reload changed** and **Rescan**.
 
+(Since rebuilt in the look of Quantum Conveyors' menus, with tabs Hot Mods, Mods, API and Updates and a settings page
+per plugin: see the wiki's *The F9 Window*.)
+
 It's built from Unity's own UI parts (Canvas, Text, Button), not a custom MonoBehaviour. It started in the core (so it
 kept working when a plugin it manages broke); it moved into its own module so it can change without a restart, and a
 broken window build is fixed through `/hot/reload`, which the core always answers. The buttons call the same code as the

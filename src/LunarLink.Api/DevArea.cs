@@ -1,7 +1,5 @@
 using System;
-using System.Text;
 using Il2CppInterop.Runtime;
-using UnityEngine;
 
 namespace LunarLink
 {
@@ -9,11 +7,18 @@ namespace LunarLink
     // calling a parameterless game method on purpose.
     static class DevArea
     {
-        internal static void Start(string state)
+        // every method a class declares itself, public or not, static or not
+        const System.Reflection.BindingFlags Declared = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static
+            | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.DeclaredOnly;
+
+        internal static void Start()
         {
             Api.Get("/dev/find", "?name= : every game method by that name: class, static, parameters, returns, live objects", r => DevFind(r));
-            Api.Get("/dev/xref", "?find=text[&type=MoonCleaners.X] : game methods whose code uses a string containing text", r => DevCode.Xref(r.Query["find"] ?? "", r.Query["type"]));
-            Api.Get("/dev/dis", "?type=MoonCleaners.X&method=Name[&n=0][&bytes=8192] : disassembly with its strings and called methods named", r => DevCode.Dis(r.Query["type"] ?? "", r.Query["method"] ?? "", Api.Qi(r, "n", 0), Api.Qi(r, "bytes", 8192)));
+            Api.Get("/dev/xref", "?find=text[&type=MoonCleaners.X] : game methods whose code uses a string containing text",
+                r => DevCode.Xref(r.Query["find"] ?? "", r.Query["type"]));
+            Api.Get("/dev/dis", "?type=MoonCleaners.X&method=Name[&n=0][&bytes=8192] : disassembly with its strings and called " +
+                "methods named", r => DevCode.Dis(r.Query["type"] ?? "", r.Query["method"]
+                ?? "", Api.Qi(r, "n", 0), Api.Qi(r, "bytes", 8192)));
             Api.Get("/dev/fields", "?type=MoonCleaners.X : a class's fields with their memory offsets", r => DevCode.Fields(r.Query["type"] ?? ""));
             Api.Get("/dev/name", "?addr=hex : which known method contains a code address", r => DevCode.NameAt(r.Query["addr"] ?? ""));
             Api.Post("/dev/call", "?type=&method= : call a parameterless game method (static, or on every live object of the class)", r => DevCall(r));
@@ -35,45 +40,49 @@ namespace LunarLink
         }
         static int LiveCount(Type t)
         {
-            try { if (!typeof(UnityEngine.Object).IsAssignableFrom(t)) return -1; return UnityEngine.Object.FindObjectsOfType(Il2CppType.From(t)).Length; } catch { return -2; }
+            try { if (!typeof(UnityEngine.Object).IsAssignableFrom(t)) return -1;
+                return UnityEngine.Object.FindObjectsOfType(Il2CppType.From(t)).Length; } catch { return -2; }
         }
         static string DevFind(Req req)
         {
-            var name = req.Query["name"] ?? ""; var sb = new StringBuilder("["); int n = 0;
+            var name = req.Query["name"] ?? ""; var o = new JsonOut().Arr();
             foreach (var t in GameTypes())
             {
                 System.Reflection.MethodInfo[] ms;
-                try { ms = t.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly); } catch { continue; }
+                try { ms = t.GetMethods(Declared); } catch { continue; }
                 foreach (var m in ms)
                 {
                     if (m.Name != name) continue;
                     var ps = string.Join(",", Array.ConvertAll(m.GetParameters(), q => q.ParameterType.Name));
-                    if (n++ > 0) sb.Append(",");
-                    sb.Append("{\"type\":" + J.S(t.FullName) + ",\"static\":" + (m.IsStatic ? "true" : "false") + ",\"public\":" + (m.IsPublic ? "true" : "false")
-                        + ",\"params\":" + J.S(ps) + ",\"returns\":" + J.S(m.ReturnType.Name) + ",\"live\":" + (m.IsStatic ? -1 : LiveCount(t)) + "}");
+                    o.Obj().Str("type", t.FullName).Bool("static", m.IsStatic).Bool("public", m.IsPublic).Str("params", ps)
+                     .Str("returns", m.ReturnType.Name).Num("live", m.IsStatic ? -1 : LiveCount(t)).End();
                 }
             }
-            return sb.Append("]").ToString();
+            return o;
         }
         static string DevCall(Req req)
         {
             var tn = req.Query["type"] ?? ""; var mn = req.Query["method"] ?? "";
             Type t = null; foreach (var x in GameTypes()) if (x.FullName == tn) { t = x; break; }
-            if (t == null) return "{\"ok\":false,\"reason\":\"no such class\"}";
-            var m = t.GetMethod(mn, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Instance, null, Type.EmptyTypes, null);
-            if (m == null) return "{\"ok\":false,\"reason\":\"no such method without parameters\"}";
+            if (t == null) return Api.Result(false, "no such class");
+            var m = t.GetMethod(mn, Declared & ~System.Reflection.BindingFlags.DeclaredOnly, null, Type.EmptyTypes, null);
+            if (m == null) return Api.Result(false, "no such method without parameters");
             try
             {
-                if (m.IsStatic) { var r = m.Invoke(null, null); return "{\"ok\":true,\"static\":true,\"returned\":" + J.S(r == null ? null : r.ToString()) + "}"; }
-                var objs = UnityEngine.Object.FindObjectsOfType(Il2CppType.From(t)); var sb = new StringBuilder("["); int n = 0;
+                if (m.IsStatic) { var r = m.Invoke(null, null);
+                    return new JsonOut().Obj().Bool("ok", true).Bool("static", true).Str("returned", r?.ToString()); }
+                var objs = UnityEngine.Object.FindObjectsOfType(Il2CppType.From(t));
+                var returned = new System.Collections.Generic.List<string>();          // all called before any is written
                 for (int i = 0; i < objs.Length; i++)
                 {
-                    var inst = Activator.CreateInstance(t, new object[] { objs[i].Pointer });
-                    var r = m.Invoke(inst, null); if (n++ > 0) sb.Append(","); sb.Append(J.S(r == null ? "null" : r.ToString()));
+                    var r = m.Invoke(Activator.CreateInstance(t, new object[] { objs[i].Pointer }), null);
+                    returned.Add(r == null ? "null" : r.ToString());
                 }
-                return "{\"ok\":true,\"objects\":" + objs.Length + ",\"returned\":" + sb.Append("]") + "}";
+                var o = new JsonOut().Obj().Bool("ok", true).Num("objects", objs.Length).Arr("returned");
+                foreach (var r in returned) o.Str(r);
+                return o;
             }
-            catch (Exception ex) { var e = ex.InnerException ?? ex; return "{\"ok\":false,\"reason\":" + J.S(e.GetType().Name + ": " + e.Message) + "}"; }
+            catch (Exception ex) { var e = ex.InnerException ?? ex; return Api.Result(false, e.GetType().Name + ": " + e.Message); }
         }
 
     }

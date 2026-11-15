@@ -23,7 +23,9 @@ namespace LunarLink
             note = null; warnings = null; native = false; content = false;
             if (!Rewriter.IsCandidate(dll)) return null;
             if (Rewriter.NameOf(dll) == "MoonFramework")
-                throw new InvalidOperationException("MoonFramework must stay in BepInEx/plugins/ and can't be hot-swapped: other plugins are built on it, and it runs the modded buildings in your world. Move it back there and restart");
+                throw new InvalidOperationException("MoonFramework must stay in BepInEx/plugins/ and can't be hot-swapped: " +
+                    "other plugins are built on it, and it runs the modded buildings in your world. Move it back there and " +
+                    "restart");
             var dirs = Rewriter.SearchDirs().Where(d => !d.EndsWith("core") && !d.EndsWith("interop")).ToList();
             if (Rewriter.UsedBy(dll, dirs) is List<string> users)
                 throw new InvalidOperationException("other plugins are built on it (" + string.Join(", ", users.Take(4)) + (users.Count > 4 ? "..." : "")
@@ -32,7 +34,8 @@ namespace LunarLink
             if (n > 1 && s.Injected.Count > 0) note = "Il2Cpp types renamed";
             content = s.Bundles > 0;
             warnings = (s.Summary != null ? new[] { s.Summary } : new string[0]).Concat(s.Warnings)
-                .Concat(content ? new[] { "loads its own content (asset bundles) when the world loads: in a world, Reload waits for the main menu" } : new string[0]).ToArray();
+                .Concat(content ? new[] { "loads its own content (asset bundles) when the world loads: in a world, Reload " +
+                    "waits for the main menu" } : new string[0]).ToArray();
             native = s.Native;
             return bytes;
         }

@@ -164,7 +164,8 @@ namespace LunarLink
             if (t.Equals("Boolean", StringComparison.OrdinalIgnoreCase) || t.Equals("Bool", StringComparison.OrdinalIgnoreCase)) return Kind.Toggle;
             if (t.Equals("KeyCode", StringComparison.OrdinalIgnoreCase) || t.Equals("Keyboard", StringComparison.OrdinalIgnoreCase)) return Kind.KeyName;
             if (t.IndexOf("Int", StringComparison.OrdinalIgnoreCase) >= 0 || t.Equals("Byte", StringComparison.OrdinalIgnoreCase)) return Kind.Whole;
-            if (t.Equals("Single", StringComparison.OrdinalIgnoreCase) || t.Equals("Double", StringComparison.OrdinalIgnoreCase) || t.Equals("Decimal", StringComparison.OrdinalIgnoreCase)) return Kind.Number;
+            if (t.Equals("Single", StringComparison.OrdinalIgnoreCase) || t.Equals("Double", StringComparison.OrdinalIgnoreCase)
+                || t.Equals("Decimal", StringComparison.OrdinalIgnoreCase)) return Kind.Number;
             if (options.Length > 0 || t.Equals("Enum", StringComparison.OrdinalIgnoreCase)) return Kind.Choice;
             if (t.Equals("String", StringComparison.OrdinalIgnoreCase) || t.Length == 0) return Kind.Text;
             return null;
@@ -207,7 +208,8 @@ namespace LunarLink
             }
             catch (Exception e)
             {
-                try { if (File.Exists(entry.Path + ".lunarlink.new")) File.Delete(entry.Path + ".lunarlink.new"); } catch { }
+                try { if (File.Exists(entry.Path + ".lunarlink.new")) File.Delete(entry.Path + ".lunarlink.new"); }
+                catch (System.Exception caught) { Quiet.Note(caught); }
                 return "Could not save " + entry.Key + ": " + e.Message;
             }
         }
@@ -219,15 +221,18 @@ namespace LunarLink
             if (entry.Type == Kind.Whole)
             {
                 if (!long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var whole)) { error = "Use a whole number"; return false; }
-                if (entry.Min.HasValue && whole < entry.Min.Value || entry.Max.HasValue && whole > entry.Max.Value) { error = "That number is outside the allowed range"; return false; }
+                if (entry.Min.HasValue && whole < entry.Min.Value || entry.Max.HasValue
+                    && whole > entry.Max.Value) { error = "That number is outside the allowed range"; return false; }
             }
             if (entry.Type == Kind.Number)
             {
                 if (!double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)) { error = "Use a number"; return false; }
-                if (entry.Min.HasValue && number < entry.Min.Value || entry.Max.HasValue && number > entry.Max.Value) { error = "That number is outside the allowed range"; return false; }
+                if (entry.Min.HasValue && number < entry.Min.Value || entry.Max.HasValue
+                    && number > entry.Max.Value) { error = "That number is outside the allowed range"; return false; }
             }
             if ((entry.Type == Kind.Choice || entry.Type == Kind.KeyName) && entry.Options.Length > 0
-                && !entry.Options.Any(x => string.Equals(x, value, StringComparison.OrdinalIgnoreCase))) { error = "That is not an allowed choice"; return false; }
+                && !entry.Options.Any(x => string.Equals(x, value,
+                    StringComparison.OrdinalIgnoreCase))) { error = "That is not an allowed choice"; return false; }
             if (value.Contains('\n') || value.Contains('\r')) { error = "A setting cannot contain a line break"; return false; }
             return true;
         }

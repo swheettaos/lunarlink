@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using System.Text;
 using Il2CppInterop.Runtime;
 using UnityEngine;
 
@@ -32,7 +31,7 @@ namespace LunarLink
             }
             Pump.Trace("census: " + count.Count + " classes; naming them");
             var keys = new List<IntPtr>(count.Keys); keys.Sort((x, y) => count[y].CompareTo(count[x]));
-            var sb = new StringBuilder("{\"ok\":true,\"components\":").Append(total).Append(",\"classes\":").Append(count.Count).Append(",\"top\":[");
+            var o = new JsonOut().Obj().Bool("ok", true).Num("components", total).Num("classes", count.Count).Arr("top");
             for (int i = 0; i < keys.Count && i < top; i++)
             {
                 IntPtr k = keys[i];
@@ -49,11 +48,10 @@ namespace LunarLink
                         if (IL2CPP.il2cpp_class_get_method_from_name(p, m, 0) != IntPtr.Zero) { has += (has == "" ? "" : ",") + m; break; }
                     }
                 }
-                if (i > 0) sb.Append(',');
-                sb.Append("{\"type\":").Append(J.S(ns == "" ? name : ns + "." + name)).Append(",\"n\":").Append(count[k]).Append(",\"calls\":").Append(J.S(has)).Append('}');
+                o.Obj().Str("type", ns == "" ? name : ns + "." + name).Num("n", count[k]).Str("calls", has).End();
             }
             Pump.Trace("census: done");
-            return sb.Append("]}").ToString();
+            return o;
         }
     }
 }

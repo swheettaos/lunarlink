@@ -1,9 +1,9 @@
 # Updates
 
-LunarLink updates itself, and any plugin that says where its builds are, from the game: F9's **UPDATES** tab. Checking
+LunarLink updates itself, and any plugin that says where its builds are, from the game: F9's **Updates** tab. Checking
 is **manual by default**: nothing is checked until you press **Check for updates**. Tick **Check for updates at game
 start** to have it check once by itself at every game start (after the moon loads). Either way, nothing is installed
-until you press **Update**, and the tab shows an orange count (**UPDATES ●2**) whenever something has an update. Every download
+until you press **Update**, and the tab shows an orange count (**Updates ●2**) whenever something has an update. Every download
 is checked against a SHA-256 first.
 
 > **Only the core needs a restart.** Every module and every hot plugin updates in place while the game runs, however
@@ -11,7 +11,7 @@ is checked against a SHA-256 first.
 > to finish**. (A plugin installed the normal BepInEx way, in `BepInEx/plugins/`, needs a restart too; run it from
 > `BepInEx/hot/` and it doesn't.)
 
-## What the UPDATES tab lists
+## What the Updates tab lists
 
 | Row | Where it comes from | Installing it |
 |---|---|---|
@@ -21,7 +21,7 @@ is checked against a SHA-256 first.
 
 **Module versions.** In a release every module has the release's number (1.1.0). Each later build of a module on the
 channel counts up from it: 1.1.0.1, 1.1.0.2, and so on; the next release starts again at its own number. F9 shows each
-module's version on HOT PLUGINS, and UPDATES says which one is available and which you have ("1.1.0.2 available, you
+module's version on Hot Mods, and Updates says which one is available and which you have ("1.1.0.2 available, you
 have v1.1.0.1"). A module you built yourself shows as **dev build**.
 
 **Update all modules** (top) updates every module with a newer build at once. The same is available over HTTP:
@@ -51,7 +51,7 @@ flowchart TD
   fingerprint of the core's source and of each module's. A release and the module channel carry the same
   fingerprints, so the updater can tell a module-only change from a core change.
 - **What it sends:** only the requests themselves (to `api.github.com` and `github.com`, or a plugin's own host), with
-  a generic `LunarLink-updater` user agent. It never checks on its own, unless you ticked **Check for updates at game start**, and except
+  a generic `LunarLink-updater` user agent. It never checks on its own, unless you turned on **Check at Game Start**, and except
   the one check after an update you started.
 
 ## Plugins that update themselves

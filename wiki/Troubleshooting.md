@@ -11,8 +11,9 @@ to a [bug report](https://github.com/swheettaos/lunarlink/issues/new/choose):
 3. Drag the zip into the bug report.
 
 It holds what's needed to find the problem: what failed, the errors from the BepInEx, game and LunarLink logs (this run's
-and the previous run's, so a crash is still there after a restart), Unity's crash reports, your plugins and DLLs, and
-your settings. Players' names, Steam ids, your user and PC name, LAN addresses and the access key are blanked out; open
+and the previous run's, so a crash is still there after a restart), Unity's crash reports, your plugins and DLLs, your
+settings, and every error LunarLink ignored on purpose (`logs/lunarlink-ignored.txt`: where, and how many times; the
+first of each is in the BepInEx log as "ignored at ..."). Players' names, Steam ids, your user and PC name, LAN addresses and the access key are blanked out; open
 the zip to see exactly what's in it. It works at the main menu and even while the game is frozen.
 
 ## The API doesn't answer
@@ -58,7 +59,7 @@ hangs but still answers.
 |---|---|
 | `failed` and an error | It didn't load (no class with `Start`/`Stop`, a missing reference), or `Start`/`Update` threw. Fix and reload |
 | `disabled` after you dropped it in | New DLLs start off: enable it |
-| "is also in BepInEx/plugins/" | The same plugin is installed the normal way: turn that copy off (BEPINEX PLUGINS tab) and restart |
+| "is also in BepInEx/plugins/" | The same plugin is installed the normal way: turn that copy off (the Mods tab) and restart |
 | `leftovers` | A Harmony patch was still in after `Stop()`; LunarLink took it out. Unpatch it in `Stop()` |
 | `oldCopiesAlive` growing (`?gc=1`) | Something still points at an old copy (a UI listener, an event): remove it in `Stop()` |
 | `"boot": "restart to boot"` | It registers buildings and was turned on after start-up: restart once |
@@ -66,9 +67,9 @@ hangs but still answers.
 
 ## Updates
 
-| What the UPDATES tab says | What it means |
+| What the Updates tab says | What it means |
 |---|---|
-| **updates off** | The `LunarLink.Update` module isn't running: turn it on in HOT PLUGINS (tick Show LunarLink modules) |
+| **updates off** | The `LunarLink.Update` module isn't running: turn it on in Hot Mods (**Lunar Link Modules: Show**, then open its row and **Enable**) |
 | **needs a newer core** (a module) | That module was built for a newer LunarLink core than yours: it comes with the next release, which needs one restart |
 | **restart to finish** | A new core is in place: restart the game; it moves the new modules in and checks again |
 | **failed**: "doesn't match ... SHA-256" | The download wasn't the file published: nothing was installed. Check again; if it keeps failing, report it |

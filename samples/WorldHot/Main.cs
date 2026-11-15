@@ -23,9 +23,11 @@ namespace WorldHot
 
         public void Start(string state)
         {
-            if (state != null) { var p = state.Split(','); int.TryParse(p[0], out starts); int.TryParse(p[1], out worldsLoaded); int.TryParse(p[2], out worldsGone); }
+            if (state != null) { var p = state.Split(','); int.TryParse(p[0], out starts); int.TryParse(p[1], out worldsLoaded);
+                int.TryParse(p[2], out worldsGone); }
             starts++;
-            startedWhere = UnityEngine.Object.FindObjectsOfType(Il2CppInterop.Runtime.Il2CppType.Of<MoonCleaners.MoonWorld>()).Length == 0 ? "before any world" : "in a world";
+            bool inWorld = UnityEngine.Object.FindObjectsOfType(Il2CppInterop.Runtime.Il2CppType.Of<MoonCleaners.MoonWorld>()).Length > 0;
+            startedWhere = inWorld ? "in a world" : "before any world";
             if (!ClassInjector.IsTypeRegisteredInIl2Cpp<WorldMarker>()) ClassInjector.RegisterTypeInIl2Cpp<WorldMarker>();
             Debug.Log($"WorldHot started {startedWhere} (start {starts})");
         }

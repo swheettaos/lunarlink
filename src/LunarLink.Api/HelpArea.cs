@@ -5,16 +5,16 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 
 namespace LunarLink
 {
     // Every endpoint and what it does: the core's, each module area's and each plugin's, as JSON and as a searchable page.
     static class HelpArea
     {
-        internal static void Start(string state)
+        internal static void Start()
         {
-            Api.Get("/help", "?path= : every endpoint and what it does (this list); &details=1 adds LunarLink's own endpoints' parameters, examples and answers", r => Json(r.Query["path"], r.Query["details"] == "1"));
+            Api.Get("/help", "?path= : every endpoint and what it does (this list); &details=1 adds LunarLink's own endpoints' " +
+                "parameters, examples and answers", r => Json(r.Query["path"], r.Query["details"] == "1"));
             Api.Get("/help.html", "The same list as a searchable page, with the details: open it in a browser", r => Html());
         }
 
@@ -60,26 +60,31 @@ namespace LunarLink
             string page;
             using (var s = typeof(HelpArea).Assembly.GetManifestResourceStream("LunarLink.help.html"))
             using (var r = new System.IO.StreamReader(s)) page = r.ReadToEnd();
-            var data = Json(null, true);
-            data = data.Substring(0, data.Length - 1) + ",\"note\":" + J.S("live from the running game, plugins included") + "}";
+            string data = Groups(null, true).Str("note", "live from the running game, plugins included");
             return page.Replace("/*DATA*/null", data.Replace("</", "<\\/"));
         }
 
-        internal static string Json(string prefix, bool withDetails = false)
+        internal static string Json(string prefix, bool withDetails = false) => Groups(prefix, withDetails);
+
+        // {"groups":[{"group","from","endpoints":[{"method","path","help"(,"d": the details)}]}]}, left open for more
+        static JsonOut Groups(string prefix, bool withDetails)
         {
             var d = withDetails ? Details() : null;
-            var sb = new StringBuilder("{\"groups\":[");
-            bool firstGroup = true;
-            foreach (var g in All().Where(e => string.IsNullOrEmpty(prefix) || e.Path.StartsWith(prefix, StringComparison.Ordinal)).GroupBy(e => (e.Group, e.Kind)))
+            var o = new JsonOut().Obj().Arr("groups");
+            foreach (var g in All().Where(e => string.IsNullOrEmpty(prefix)
+                || e.Path.StartsWith(prefix, StringComparison.Ordinal)).GroupBy(e => (e.Group, e.Kind)))
             {
-                if (!firstGroup) sb.Append(','); firstGroup = false;
-                sb.Append("{\"group\":").Append(J.S(g.Key.Group)).Append(",\"from\":").Append(J.S(g.Key.Kind)).Append(",\"endpoints\":[");
-                // details only for LunarLink's own routes (a plugin's endpoint may share no path with them)
-                sb.Append(string.Join(",", g.Select(e => "{\"method\":" + J.S(e.Method) + ",\"path\":" + J.S(e.Path) + ",\"help\":" + J.S(e.Text)
-                    + (d != null && (e.Kind == "core" || e.Kind.StartsWith("LunarLink.")) && d.TryGetValue(e.Path, out var x) ? ",\"d\":" + x : "") + "}")));
-                sb.Append("]}");
+                o.Obj().Str("group", g.Key.Group).Str("from", g.Key.Kind).Arr("endpoints");
+                foreach (var e in g)
+                {
+                    o.Obj().Str("method", e.Method).Str("path", e.Path).Str("help", e.Text);
+                    // details only for LunarLink's own routes (a plugin's endpoint may share no path with them)
+                    if (d != null && (e.Kind == "core" || e.Kind.StartsWith("LunarLink.")) && d.TryGetValue(e.Path, out var x)) o.Raw("d", x);
+                    o.End();
+                }
+                o.End().End();
             }
-            return sb.Append("]}").ToString();
+            return o.End();
         }
     }
 }

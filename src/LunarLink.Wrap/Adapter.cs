@@ -11,8 +11,6 @@ using System.Collections.Specialized;
 using System.Linq;
 using System.Reflection;
 using BepInEx.Unity.IL2CPP;
-using Il2CppInterop.Runtime;
-using UnityEngine;
 
 namespace LunarLink
 {
@@ -43,7 +41,8 @@ namespace LunarLink
             foreach (var t in HotTrack.Types(asm).Where(t => !t.ContainsGenericParameters))
                 foreach (var f in t.GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
                     .Where(f => f.FieldType.IsEnum && !f.IsLiteral && !f.IsInitOnly))
-                    try { lines.Add(t.FullName + "|" + f.Name + "|" + Convert.ToInt64(f.GetValue(null))); } catch { }
+                    try { lines.Add(t.FullName + "|" + f.Name + "|" + Convert.ToInt64(f.GetValue(null))); }
+                    catch (System.Exception caught) { Quiet.Note(caught); }
             return lines.Count == 0 ? null : string.Join("\n", lines);
         }
 
@@ -56,12 +55,15 @@ namespace LunarLink
                 var p = line.Split('|'); if (p.Length != 3 || !long.TryParse(p[2], out var v)) continue;
                 try
                 {
-                    var f = asm.GetType(p[0], false)?.GetField(p[1], BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+                    var f = asm.GetType(p[0], false)?.GetField(p[1],
+                        BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
                     if (f == null || !f.FieldType.IsEnum || f.IsInitOnly) continue;
                     var value = Enum.ToObject(f.FieldType, v);
-                    if (!Equals(f.GetValue(null), value)) { f.SetValue(null, value); carried.Add(p[0].Substring(p[0].LastIndexOf('.') + 1) + "." + p[1].Replace("<", "").Replace(">k__BackingField", "") + " = " + value); }
+                    if (!Equals(f.GetValue(null), value)) { f.SetValue(null, value);
+                        carried.Add(p[0].Substring(p[0].LastIndexOf('.') + 1) + "."
+                        + p[1].Replace("<", "").Replace(">k__BackingField", "") + " = " + value); }
                 }
-                catch { }
+                catch (System.Exception caught) { Quiet.Note(caught); }
             }
             if (carried.Count > 0) Pump.Journal("hot: carried to the new copy: " + string.Join(", ", carried));
         }
@@ -70,7 +72,7 @@ namespace LunarLink
         {
             left.Clear();
             if (bep == null) { HotTrack.Discard(track); return null; }
-            string choices = null; try { choices = Choices(type.Assembly); } catch { }
+            string choices = null; try { choices = Choices(type.Assembly); } catch (System.Exception caught) { Quiet.Note(caught); }
             var un = type.GetMethod("Unload", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
             if (un != null && un.DeclaringType != typeof(BasePlugin))
             {
@@ -79,7 +81,7 @@ namespace LunarLink
             }
             left.AddRange(HotTrack.Stop(track));
             try { DestroyObjects(); } catch (Exception e) { left.Add("removing its components: " + e.Message); }
-            try { BepInEx.Logging.Logger.Sources.Remove(bep.Log); } catch { }
+            try { BepInEx.Logging.Logger.Sources.Remove(bep.Log); } catch (System.Exception caught) { Quiet.Note(caught); }
             HotTrack.Forget(type.Assembly);
             bep = null;
             return choices;                                  // the next copy's state: its choices (Carry)

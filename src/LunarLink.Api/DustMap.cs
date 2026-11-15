@@ -1,6 +1,3 @@
-using System;
-using System.Reflection;
-using System.Text;
 using MoonCleaners;
 using UnityEngine;
 
@@ -13,46 +10,45 @@ namespace LunarLink
     {
         public static string Regions(MoonWorld w)
         {
-            var regions = w.Regions; if (regions == null) return "{\"ok\":false,\"reason\":\"no regions yet\"}";
-            var centres = regions.Centers; int n = centres.Length;
-            var sb = new StringBuilder("{\"ok\":true,\"count\":").Append(n).Append(",\"radius\":").Append(J.F(MoonRadius())).Append(",\"dusty\":[");
-            int k = 0;
+            var regions = w.Regions; if (regions == null) return Api.Result(false, "no regions yet");
+            var centres = regions.Centers; int n = centres.Length, k = 0;
+            var o = new JsonOut().Obj().Bool("ok", true).Num("count", n).Num("radius", MoonRadius()).Arr("dusty");
             for (int i = 0; i < n; i++)
             {
                 if (w.IsRegionComplete(i)) continue;
-                var c = centres[i];
-                if (k++ > 0) sb.Append(',');
-                sb.Append('[').Append(i).Append(',').Append(J.F(c.x)).Append(',').Append(J.F(c.y)).Append(',').Append(J.F(c.z))
-                  .Append(',').Append(J.F(w.RegionRemainingDust(i))).Append(',').Append(J.F(w.RegionInitialDust(i))).Append(']');
+                var c = centres[i]; k++;
+                o.Nums(i, c.x, c.y, c.z, w.RegionRemainingDust(i), w.RegionInitialDust(i));      // [index, x, y, z, left, started with]
             }
-            return sb.Append("],\"left\":").Append(k).Append('}').ToString();
+            return o.End().Num("left", k);
         }
 
         // every region centre and the centre of each chunk file named in chunk_names.txt (next to the plugin), written to
         // dust_geometry.json there - for editing the save's dust offline. Read-only.
         public static string Geometry(MoonWorld w)
         {
-            var regions = w.Regions; if (regions == null) return "{\"ok\":false,\"reason\":\"no regions yet\"}";
+            var regions = w.Regions; if (regions == null) return Api.Result(false, "no regions yet");
             var dir = Api.DataDir;
-            var centres = regions.Centers; var sb = new StringBuilder("{\"centres\":[");
-            for (int i = 0; i < centres.Length; i++) { var c = centres[i]; if (i > 0) sb.Append(','); sb.Append(J.F(c.x)).Append(',').Append(J.F(c.y)).Append(',').Append(J.F(c.z)); }
-            sb.Append("],\"chunks\":{"); int ok = 0, bad = 0;
+            var centres = regions.Centers;
+            var o = new JsonOut().Obj().Arr("centres");                  // flat: x, y, z of each region in turn
+            for (int i = 0; i < centres.Length; i++) o.Num(centres[i].x).Num(centres[i].y).Num(centres[i].z);
+            o.End().Obj("chunks"); int ok = 0, bad = 0;
             var namesFile = System.IO.Path.Combine(dir, "chunk_names.txt");
             if (System.IO.File.Exists(namesFile))
                 foreach (var raw in System.IO.File.ReadAllLines(namesFile))
                 {
                     var name = raw.Trim(); if (name.Length == 0) continue;
                     var pt = Vector3.zero;
-                    if (w.ChunkFileCentre(name, out pt)) { if (ok + bad > 0) sb.Append(','); sb.Append(J.S(name)).Append(':').Append(J.V(pt)); ok++; } else bad++;
+                    if (w.ChunkFileCentre(name, out pt)) { o.Vec(name, pt); ok++; } else bad++;
                 }
-            sb.Append("},\"chunkCount\":").Append(w.ChunkCount).Append(",\"radius\":").Append(J.F(MoonRadius())).Append('}');
-            System.IO.File.WriteAllText(System.IO.Path.Combine(dir, "dust_geometry.json"), sb.ToString());
-            return "{\"ok\":true,\"regions\":" + centres.Length + ",\"chunks\":" + ok + ",\"chunkMisses\":" + bad + ",\"chunkCount\":" + w.ChunkCount + "}";
+            System.IO.File.WriteAllText(System.IO.Path.Combine(dir, "dust_geometry.json"), o.End().Num("chunkCount", w.ChunkCount).Num("radius", MoonRadius()));
+            return new JsonOut().Obj().Bool("ok", true).Num("regions", centres.Length).Num("chunks", ok).Num("chunkMisses",
+                bad).Num("chunkCount", w.ChunkCount);
         }
 
         static float MoonRadius()
         {
-            try { foreach (var s in UnityEngine.Object.FindObjectsOfType<MoonCollector>()) return s.transform.position.magnitude; } catch { }
+            try { foreach (var s in UnityEngine.Object.FindObjectsOfType<MoonCollector>()) return s.transform.position.magnitude;
+                } catch (System.Exception caught) { Quiet.Note(caught); }
             return 2000f;
         }
     }

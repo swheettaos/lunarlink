@@ -17,12 +17,15 @@ namespace LunarLink
         public static long Silenced, Passed;
         static int listenerFrame = -1; static Vector3 ear; static bool hasEar;
         static string Path => System.IO.Path.Combine(Api.DataDir, "audio_far.txt");
-        static float Load() { try { return Math.Max(0f, float.Parse(System.IO.File.ReadAllText(Path).Trim(), System.Globalization.CultureInfo.InvariantCulture)); } catch { return 60f; } }
+        static float Load() { try { return Math.Max(0f,
+            float.Parse(System.IO.File.ReadAllText(Path).Trim(), System.Globalization.CultureInfo.InvariantCulture)); }
+        catch { return 60f; } }
 
         public static string Set(float m)
         {
             FarMetres = Math.Max(0f, m);
-            try { System.IO.File.WriteAllText(Path, FarMetres.ToString(System.Globalization.CultureInfo.InvariantCulture)); } catch { }
+            try { System.IO.File.WriteAllText(Path, FarMetres.ToString(System.Globalization.CultureInfo.InvariantCulture)); }
+            catch (System.Exception caught) { Quiet.Note(caught); }
             if (!Installed) Install();
             return Json();
         }
@@ -35,7 +38,9 @@ namespace LunarLink
                 var m = typeof(MoonProductionView).GetMethod("Loop", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
                 if (m == null) throw new Exception("no MoonProductionView.Loop");
                 Pump.Journal("audio: patching MoonProductionView.Loop");
-                new Harmony(PerfModule.Id + ".audio").Patch(m, prefix: new HarmonyMethod(typeof(AudioFix).GetMethod(nameof(LoopPrefix), BindingFlags.Static | BindingFlags.NonPublic)));
+                new Harmony(PerfModule.Id
+                    + ".audio").Patch(m, prefix: new HarmonyMethod(typeof(AudioFix).GetMethod(nameof(LoopPrefix),
+                    BindingFlags.Static | BindingFlags.NonPublic)));
                 Pump.Journal("audio: patched, machines beyond " + FarMetres + " m stay silent");
             }
             catch (Exception e) { Reason = e.Message; Pump.Journal("audio: patch failed: " + e.Message); }
@@ -60,8 +65,7 @@ namespace LunarLink
             catch (Exception e) { Reason = e.Message; Pump.Journal("audio: switched off after an error: " + e.Message); }
         }
 
-        public static string Json() =>
-            "{\"ok\":" + (Reason == null ? "true" : "false") + ",\"farMetres\":" + J.F(FarMetres) + ",\"installed\":" + (Installed ? "true" : "false")
-            + ",\"silenced\":" + Silenced + ",\"passed\":" + Passed + ",\"reason\":" + J.S(Reason) + "}";
+        public static string Json() => new JsonOut().Obj().Bool("ok", Reason == null).Num("farMetres", FarMetres).Bool("installed", Installed)
+            .Num("silenced", Silenced).Num("passed", Passed).Str("reason", Reason);
     }
 }

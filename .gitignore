@@ -5,3 +5,4 @@ dist/
 mcp/build/
 *.egg-info/
 .venv/
+__pycache__/

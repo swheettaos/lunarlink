@@ -118,7 +118,9 @@ namespace LunarLink
                 if (!known.Contains(file) && System.IO.File.Exists(Abs(file)))
                 {
                     var saved = CachedName(file);
-                    list.Add(new Entry { Name = saved?.Name ?? Path.GetFileNameWithoutExtension(file), Guid = saved?.Guid, File = file, State = "on from next start" });
+                    list.Add(new Entry { Name = saved?.Name
+                        ?? Path.GetFileNameWithoutExtension(file), Guid = saved?.Guid, File = file,
+                        State = "on from next start" });
                 }
             if (cacheChanged) SaveNameCache();
             return list.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ToList();
@@ -154,7 +156,8 @@ namespace LunarLink
             // the same plugin running hot from BepInEx/hot/ would load twice at the next start
             var stem = Path.GetFileNameWithoutExtension(file);
             if (Hot.Find(stem) is Hot.Plugin hot && hot.Enabled)
-                return stem + " runs hot from BepInEx/hot/: turning this copy on too would load it twice. Disable the hot one first (HOT PLUGINS) to use this copy";
+                return stem + " runs hot from BepInEx/hot/: turning this copy on too would load it twice. Disable the hot one " +
+                    "first (HOT PLUGINS) to use this copy";
             var path = Abs(file);
             if (System.IO.File.Exists(path)) return Path.GetFileName(file) + " is already on";
             if (!System.IO.File.Exists(path + Off)) return "no " + file + Off;
@@ -166,24 +169,34 @@ namespace LunarLink
 
         internal static void Routes()
         {
-            Api.Get("/plugins", "The normal BepInEx plugins: name, guid, version, file, state, what needs them", r =>
-                "{\"plugins\":[" + string.Join(",", List().Select(e => "{\"name\":" + J.S(e.Name) + ",\"guid\":" + J.S(e.Guid) + ",\"version\":" + J.S(e.Version)
-                    + ",\"file\":" + J.S(e.File) + ",\"state\":" + J.S(e.State) + ",\"neededBy\":[" + string.Join(",", e.NeededBy.Select(J.S)) + "]}")) + "]}");
+            Api.Get("/plugins", "The normal BepInEx plugins: name, guid, version, file, state, what needs them", r => Json());
             Api.Post("/plugins/disable", "?file= : off from the next game start (restart required)", r => Change(r.Query["file"], Disable));
             Api.Post("/plugins/enable", "?file= : on from the next game start (restart required)", r => Change(r.Query["file"], Enable));
         }
 
+        static string Json()
+        {
+            var o = new JsonOut().Obj().Arr("plugins");
+            foreach (var e in List())
+            {
+                o.Obj().Str("name", e.Name).Str("guid", e.Guid).Str("version", e.Version).Str("file", e.File).Str("state", e.State).Arr("neededBy");
+                foreach (var n in e.NeededBy) o.Str(n);
+                o.End().End();
+            }
+            return o;
+        }
+
         static string Change(string file, Func<string, string> act)
         {
-            if (string.IsNullOrEmpty(file)) return "{\"error\":\"file= is required (as GET /plugins lists it)\"}";
+            if (string.IsNullOrEmpty(file)) return Api.Error("file= is required (as GET /plugins lists it)");
             string why;
             try { why = act(file); }
             catch (Exception e) { why = e.GetType().Name + ": " + e.Message; }
-            if (why != null) return "{\"ok\":false,\"reason\":" + J.S(why) + "}";
+            if (why != null) return Api.Result(false, why);
             var now = List().FirstOrDefault(x => string.Equals(x.File, file, StringComparison.OrdinalIgnoreCase));
             bool restart = now != null && now.State.Contains("next start");          // back to how it started: nothing to restart for
-            return "{\"ok\":true,\"state\":" + J.S(now?.State) + ",\"restartRequired\":" + (restart ? "true" : "false")
-                + ",\"note\":" + J.S(restart ? "restart the game to apply" : "back to how the game started it: no restart needed") + "}";
+            return new JsonOut().Obj().Bool("ok", true).Str("state", now?.State).Bool("restartRequired", restart)
+                .Str("note", restart ? "restart the game to apply" : "back to how the game started it: no restart needed");
         }
     }
 }

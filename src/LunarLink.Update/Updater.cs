@@ -28,12 +28,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Net.Http;
-using System.Security.Cryptography;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 
 namespace LunarLink
@@ -60,7 +57,7 @@ namespace LunarLink
         public void Update() => Updater.Tick();
     }
 
-    static class Updater
+    static partial class Updater
     {
         const string Repo = "swheettaos/lunarlink";
         const string Channel = "https://github.com/" + Repo + "/releases/download/modules/modules.json";
@@ -117,7 +114,7 @@ namespace LunarLink
         static string state = "idle", latest, notes, page, zipUrl, digest, error, detail;
         static long size; static bool? coreChanged;
         static readonly List<Module> modules = new List<Module>();
-        static string channelCore, channelError, channelModified;
+        static string channelError, channelModified;
         static List<string> toReload;                    // a release's modules to reload on the main thread (Tick)
         static List<Module> modulesToReload;             // the channel's modules to reload (Tick)
         internal static bool CheckSoon;                  // check at the next frame (after a core update, a self-update, or at game start)
@@ -129,17 +126,24 @@ namespace LunarLink
         {
             File.WriteAllText(AutoPath, on ? "1" : "0");
             Plugin.L.LogInfo("update: check at game start " + (on ? "on" : "off"));
-            return "{\"ok\":true,\"autoCheck\":" + (on ? "true" : "false") + "}";
+            return new JsonOut().Obj().Bool("ok", true).Bool("autoCheck", on);
         }
         internal static bool SelfUpdating;               // this module is reloading itself: its Stop hands that over
 
         internal static void Routes()
         {
-            Api.Get("/update", "What LunarLink's updater knows: the running version, the latest release, each module in the module channel, each plugin with an UpdateFeed(), and how far an update got", r => Json());
-            Api.Post("/update/modify", "?auto=1|0 : check for updates by itself once a moon is loaded, at every game start (off by default: checking is manual)", r => SetAuto(r.Query["auto"] == "1"));
-            Api.Ask("/update/check", "Ask GitHub for LunarLink's latest release and the module channel, and each plugin's update feed, then read GET /update", r => Check());
-            Api.Post("/update/apply", "Install the latest release (modules reload in place; a new core needs a restart), or ?module=<name>|all: modules from the channel, reloaded in place, or ?plugin=<name>: a plugin's own update (UpdateFeed). ?force=1 reinstalls the same release", r =>
-                RestartPending ? "{\"ok\":false,\"reason\":" + J.S(RestartFirst) + "}"
+            Api.Get("/update", "What LunarLink's updater knows: the running version, the latest release, each module in the " +
+                "module channel, each plugin with an UpdateFeed(), and how far an update got", r => Json());
+            Api.Post("/update/modify",
+                "?auto=1|0 : check for updates by itself once a moon is loaded, at every game start (off by default: checking " +
+                    "is manual)", r => SetAuto(r.Query["auto"] == "1"));
+            Api.Ask("/update/check",
+                "Ask GitHub for LunarLink's latest release and the module channel, and each plugin's update feed, then read GET /update", r => Check());
+            Api.Post("/update/apply",
+                "Install the latest release (modules reload in place; a new core needs a restart), or ?module=<name>|all: " +
+                    "modules from the channel, reloaded in place, or ?plugin=<name>: a plugin's own update (UpdateFeed). " +
+                    "?force=1 reinstalls the same release", r =>
+                RestartPending ? Api.Result(false, RestartFirst)
                 : !string.IsNullOrEmpty(r.Query["plugin"]) ? PluginUpdates.Apply(r.Query["plugin"])
                 : string.IsNullOrEmpty(r.Query["module"]) ? Apply(r.Query["force"] == "1") : ApplyModules(r.Query["module"]));
         }
@@ -148,14 +152,22 @@ namespace LunarLink
         {
             // a new core waiting for the restart, whatever the last check said (or none yet)
             bool pending = RestartPending;
+            var o = new JsonOut();
             lock (gate)
-                return "{\"ok\":true,\"running\":" + J.S(Running) + ",\"loaded\":" + J.S(Loaded) + ",\"restartPending\":" + (pending ? "true" : "false")
-                    + ",\"autoCheck\":" + (Auto ? "true" : "false") + ",\"state\":" + J.S(pending && (state == "idle" || state == "up to date" || state == "available") ? "restart" : state) + ",\"latest\":" + J.S(latest) + ",\"page\":" + J.S(page)
-                    + ",\"size\":" + size + ",\"coreChanged\":" + (coreChanged == null ? "null" : coreChanged.Value ? "true" : "false")
-                    + ",\"detail\":" + J.S(detail) + ",\"error\":" + J.S(error) + ",\"notes\":" + J.S(notes)
-                    + ",\"channel\":{\"error\":" + J.S(channelError) + ",\"published\":" + J.S(channelModified) + ",\"modules\":[" + string.Join(",", modules.Select(m =>
-                        "{\"name\":" + J.S(m.Name) + ",\"version\":" + J.S(m.Version) + ",\"installed\":" + J.S(Installed(m.Name)) + ",\"state\":" + J.S(m.State) + ",\"note\":" + J.S(m.Note) + ",\"built\":" + J.S(m.Built)
-                        + ",\"commit\":" + J.S(m.Commit) + ",\"size\":" + m.Size + ",\"error\":" + J.S(m.Error) + "}")) + "]},\"plugins\":" + PluginUpdates.Json() + "}";
+            {
+                o.Obj().Bool("ok", true).Str("running", Running).Str("loaded", Loaded).Bool("restartPending", pending).Bool("autoCheck", Auto)
+                 .Str("state", pending && (state == "idle" || state == "up to date" || state == "available") ? "restart" : state)
+                 .Str("latest", latest).Str("page", page).Num("size", size);
+                if (coreChanged == null) o.Null("coreChanged"); else o.Bool("coreChanged", coreChanged.Value);
+                o.Str("detail", detail).Str("error", error).Str("notes", notes)
+                 .Obj("channel").Str("error", channelError).Str("published", channelModified).Arr("modules");
+                foreach (var m in modules)
+                    o.Obj().Str("name", m.Name).Str("version", m.Version).Str("installed", Installed(m.Name)).Str("state", m.State).Str("note", m.Note)
+                     .Str("built", m.Built).Str("commit", m.Commit).Num("size", m.Size).Str("error", m.Error).End();
+                o.End().End();
+            }
+            PluginUpdates.Write(o.Arr("plugins"));
+            return o;
         }
 
         // a module's version as installed in BepInEx/hot/: its assembly version ("dev" for a local build), read from the
@@ -171,7 +183,9 @@ namespace LunarLink
                 {
                     if (installedSeen.TryGetValue(name, out var seen) && seen.at == at) return seen.v;
                     var v = System.Reflection.AssemblyName.GetAssemblyName(f).Version;
-                    var s = v == null || v == new Version(1, 0, 0, 0) ? null : v == new Version(0, 0, 0, 0) ? "dev" : v.Revision > 0 ? v.ToString(4) : v.ToString(3);   // 1.0.0.0: built before modules had versions
+                    // 1.0.0.0: built before modules had versions
+                    var s = v == null || v == new Version(1, 0, 0, 0) ? null : v == new Version(0, 0, 0, 0) ? "dev"
+                        : v.Revision > 0 ? v.ToString(4) : v.ToString(3);
                     installedSeen[name] = (at, s); return s;
                 }
             }
@@ -184,7 +198,8 @@ namespace LunarLink
 
         internal static bool Busy
         {
-            get { lock (gate) if (state == "checking" || state == "downloading" || state == "reloading" || modules.Any(m => m.State == "downloading" || m.State == "reloading")) return true; return PluginUpdates.Busy; }
+            get { lock (gate) if (state == "checking" || state == "downloading" || state == "reloading"
+                || modules.Any(m => m.State == "downloading" || m.State == "reloading")) return true; return PluginUpdates.Busy; }
         }
 
         static HttpClient Client()
@@ -199,226 +214,9 @@ namespace LunarLink
         // in the game, 2026-11-13: an old modules.json minutes after the new one was published) must not answer for them.
         internal static string Fresh(string url) => url + (url.Contains("?") ? "&" : "?") + "t=" + DateTime.UtcNow.Ticks;
 
-        static void Set(string s, string d = null, string e = null) { lock (gate) { state = s; detail = d; error = e; } if (e != null) Plugin.L.LogWarning("update: " + e); else if (d != null) Plugin.L.LogInfo("update: " + d); }
-
-        // the slot's Apply (the F9 window's buttons): "" the latest release, a module's name or "all", "plugin:<name>" a
-        // plugin's own update, "auto:1" / "auto:0" the "check at game start" setting
-        internal static string ApplyAny(string what) => RestartPending && !(what ?? "").StartsWith("auto:") ? RestartFirst
-            : string.IsNullOrEmpty(what) ? Apply(false)
-            : what.StartsWith("plugin:") ? PluginUpdates.Apply(what.Substring(7))
-            : what.StartsWith("auto:") ? SetAuto(what == "auto:1") : ApplyModules(what);
-
-        // a new core waiting for the restart: nothing is checked or installed until it's done (on top of a pending core,
-        // a new release or module could be meant for either core)
-        const string RestartFirst = "a new LunarLink core is installed: restart the game first (the core loads only at start)";
-
-        internal static string Check()
-        {
-            if (Busy) return Json();
-            if (RestartPending) { Set("restart", "LunarLink " + Running + " is installed, but the game still runs " + Loaded + ": restart the game to finish (the core loads only at start)"); return Json(); }
-            lock (gate) { state = "checking"; error = null; detail = null; coreChanged = null; channelError = null; }
-            PluginUpdates.Discover();                            // on this (main) thread: asks each plugin for UpdateFeed()
-            Task.Run(CheckNow);
-            return Json();
-        }
-
-        static async Task CheckNow()
-        {
-            using var c = Client();
-            await CheckChannel(c);                                   // first, so the release's state is the last word
-            await PluginUpdates.CheckAll(c);
-            try
-            {
-                var req = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/repos/" + Repo + "/releases/latest");
-                req.Headers.Accept.ParseAdd("application/vnd.github+json");
-                var res = await c.SendAsync(req); res.EnsureSuccessStatusCode();
-                using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync()); var r = doc.RootElement;
-                string tag = r.GetProperty("tag_name").GetString() ?? "", ver = tag.TrimStart('v');
-                JsonElement asset = default; bool found = false;
-                foreach (var a in r.GetProperty("assets").EnumerateArray())
-                {
-                    var n = a.GetProperty("name").GetString() ?? "";
-                    if (n.StartsWith("LunarLink-") && n.EndsWith(".zip")) { asset = a; found = true; break; }
-                }
-                lock (gate)
-                {
-                    latest = ver; notes = r.TryGetProperty("body", out var b) ? b.GetString() : null; page = r.GetProperty("html_url").GetString();
-                    zipUrl = found ? asset.GetProperty("browser_download_url").GetString() : null;
-                    digest = found && asset.TryGetProperty("digest", out var dg) && dg.ValueKind == JsonValueKind.String ? dg.GetString() : null;
-                    size = found ? asset.GetProperty("size").GetInt64() : 0;
-                }
-                if (!found) { Set("failed", null, "release " + tag + " has no LunarLink zip"); return; }
-                if (RestartPending)
-                {
-                    Set("restart", "LunarLink " + Running + " is installed, but the game still runs " + Loaded + ": restart the game to finish (the core loads only at start)");
-                    return;
-                }
-                bool newer = Version.TryParse(ver, out var v) && Version.TryParse(Running, out var mine) && v > mine;
-                Set(newer ? "available" : "up to date", newer ? "LunarLink " + ver + " is available (running " + Running + ")" : "LunarLink " + Running + " is the latest release");
-            }
-            catch (Exception e) { Set("failed", null, "check: " + (e.InnerException ?? e).Message); }
-        }
-
-        // modules.json from the module channel: each module's state against what's installed
-        static async Task CheckChannel(HttpClient c)
-        {
-            try
-            {
-                var res = await c.GetAsync(Fresh(Channel));
-                if (res.StatusCode == System.Net.HttpStatusCode.NotFound) { lock (gate) { modules.Clear(); channelCore = null; } return; }   // no channel yet
-                res.EnsureSuccessStatusCode();
-                using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync()); var r = doc.RootElement;
-                var installed = Manifest(); var list = new List<Module>();
-                string core = r.GetProperty("coreHash").GetString();
-                foreach (var p in r.GetProperty("modules").EnumerateObject())
-                {
-                    var e = p.Value; string Str(string k) => e.TryGetProperty(k, out var x) && x.ValueKind == JsonValueKind.String ? x.GetString() : null;
-                    var m = new Module { Name = p.Name, Version = Str("version"), SourceHash = Str("sourceHash"), Sha256 = Str("sha256"), Url = Str("url"), Note = Str("note"),
-                                         Built = Str("built"), Commit = Str("commit"), Size = e.TryGetProperty("size", out var sz) ? sz.GetInt64() : 0 };
-                    // available: other source, or the same source with a newer number (a module built before versions has none)
-                    m.State = core != installed.core ? "needs core"
-                            : installed.modules.TryGetValue(m.Name, out var have) && have == m.SourceHash && !Newer(m.Version, Installed(m.Name)) ? "up to date" : "available";
-                    list.Add(m);
-                }
-                lock (gate) { modules.Clear(); modules.AddRange(list.OrderBy(m => m.Name)); channelCore = core; channelModified = res.Content.Headers.LastModified?.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") + " UTC"; }
-            }
-            catch (Exception e) { lock (gate) channelError = "module channel: " + (e.InnerException ?? e).Message; Plugin.L.LogWarning("update: module channel: " + (e.InnerException ?? e).Message); }
-        }
-
-        internal static string Apply(bool force)
-        {
-            if (Busy) return Json();
-            lock (gate)
-            {
-                if (state != "available" && !(force && zipUrl != null)) return "{\"ok\":false,\"reason\":" + J.S(zipUrl == null ? "check first: POST /update/check" : "no newer release (force=1 reinstalls it)") + "}";
-                state = "downloading"; error = null; detail = "downloading " + latest;
-            }
-            Task.Run(ApplyNow);
-            return Json();
-        }
-
-        static async Task ApplyNow()
-        {
-            string url, want; lock (gate) { url = zipUrl; want = digest; }
-            try
-            {
-                byte[] zip;
-                using (var c = Client()) zip = await c.GetByteArrayAsync(url);
-                if (string.IsNullOrEmpty(want) || !want.StartsWith("sha256:")) { Set("failed", null, "GitHub published no SHA-256 for the zip: not installed"); return; }
-                if ("sha256:" + Sha(zip) != want) { Set("failed", null, "the download doesn't match GitHub's SHA-256: not installed"); return; }
-                Install(zip);
-            }
-            catch (Exception e) { Set("failed", null, "install: " + (e.InnerException ?? e).Message); }
-        }
-
-        // ?module=<name> or all: the channel's newer builds of those modules
-        internal static string ApplyModules(string which)
-        {
-            if (Busy) return Json();
-            List<Module> pick;
-            lock (gate)
-            {
-                if (modules.Count == 0) return "{\"ok\":false,\"reason\":\"check first: POST /update/check (no module channel known)\"}";
-                pick = modules.Where(m => (which == "all" || string.Equals(m.Name, which, StringComparison.OrdinalIgnoreCase)) && m.State == "available").ToList();
-                if (pick.Count == 0)
-                {
-                    var m = modules.FirstOrDefault(x => string.Equals(x.Name, which, StringComparison.OrdinalIgnoreCase));
-                    return "{\"ok\":false,\"reason\":" + J.S(which != "all" && m == null ? "no module " + which + " in the channel"
-                        : m != null && m.State == "needs core" ? m.Name + " is built for a newer core: install the next LunarLink release first"
-                        : "no newer module build") + "}";
-                }
-                foreach (var m in pick) { m.State = "downloading"; m.Error = null; }
-                picked = pick;
-            }
-            Task.Run(ApplyModulesNow);
-            return Json();
-        }
-
-        static List<Module> picked;                      // the modules ApplyModulesNow downloads (handed over in a field: a lambda here needs a compiler attribute these references lack)
-        static async Task ApplyModulesNow()
-        {
-            List<Module> pick; lock (gate) { pick = picked; picked = null; }
-            var ready = new List<Module>();
-            using var c = Client();
-            foreach (var m in pick)
-            {
-                try
-                {
-                    if (string.IsNullOrEmpty(m.Sha256) || string.IsNullOrEmpty(m.Url)) throw new InvalidOperationException("modules.json names no SHA-256 or address");
-                    var dll = await c.GetByteArrayAsync(Fresh(m.Url));
-                    if (Sha(dll) != m.Sha256.ToLowerInvariant()) throw new InvalidOperationException("the download doesn't match modules.json's SHA-256: not installed");
-                    Put(Path.Combine(Hot.Dir, m.Name + ".dll"), dll);
-                    lock (gate) m.State = "reloading";
-                    ready.Add(m);
-                }
-                catch (Exception e) { lock (gate) { m.State = "failed"; m.Error = (e.InnerException ?? e).Message; } Plugin.L.LogWarning("update: " + m.Name + ": " + m.Error); }
-            }
-            lock (gate) modulesToReload = ready;
-        }
-
-        static string Sha(byte[] b) => Convert.ToHexString(SHA256.HashData(b)).ToLowerInvariant();
-
-        // Write a file without ever writing over one in use: next to it first, then moved into place.
-        static void Put(string path, byte[] bytes)
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(path));
-            File.WriteAllBytes(path + ".new", bytes);
-            File.Move(path + ".new", path, true);
-        }
-
-        // manifest.json: this module's fingerprint is now the installed one
-        static void Record(string module, string sourceHash)
-        {
-            var node = (File.Exists(ManifestPath) ? JsonNode.Parse(File.ReadAllText(ManifestPath)) : null) as JsonObject ?? new JsonObject();
-            if (node["modules"] is not JsonObject mods) { mods = new JsonObject(); node["modules"] = mods; }
-            mods[module] = sourceHash;
-            Put(ManifestPath, System.Text.Encoding.UTF8.GetBytes(node.ToJsonString() + "\n"));
-        }
-
-        static void Install(byte[] zipBytes)
-        {
-            var core = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);     // file name -> bytes, for plugins/LunarLink/
-            var mods = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);     // for BepInEx/hot/
-            using (var z = new ZipArchive(new MemoryStream(zipBytes), ZipArchiveMode.Read))
-                foreach (var e in z.Entries)
-                {
-                    var n = e.FullName.Replace('\\', '/'); if (n.EndsWith("/")) continue;
-                    string name = Path.GetFileName(n); var ms = new MemoryStream(); using (var s = e.Open()) s.CopyTo(ms);
-                    if (n == Plugins + name && !name.Contains("..")) core[name] = ms.ToArray();
-                    else if (n == HotFolder + name && name.StartsWith("LunarLink.") && name.EndsWith(".dll")) mods[name] = ms.ToArray();
-                    // anything else in the zip is ignored
-                }
-            if (!core.ContainsKey("LunarLink.dll") || mods.Count == 0) { Set("failed", null, "the zip doesn't hold LunarLink's files"); return; }
-
-            string newHash = null;
-            if (core.TryGetValue("manifest.json", out var mf))
-                try { using var d = JsonDocument.Parse(mf); newHash = d.RootElement.TryGetProperty("coreHash", out var h) ? h.GetString() : null; } catch { }
-            string oldHash = Manifest().core;
-            bool changed = newHash == null || oldHash == null || newHash != oldHash;
-            lock (gate) coreChanged = changed;
-
-            if (!changed)
-            {
-                // same core: the modules into BepInEx/hot/ and reloaded (Tick); the core's files stay as they are,
-                // installed-version too (it names the running core's build)
-                foreach (var kv in mods) Put(Path.Combine(Hot.Dir, kv.Key), kv.Value);
-                if (mf != null) Put(ManifestPath, mf);
-                lock (gate) { toReload = mods.Keys.Select(Path.GetFileNameWithoutExtension).ToList(); state = "reloading"; detail = "reloading " + toReload.Count + " modules"; }
-                return;
-            }
-            // a new core: swapped in for the next start, the modules waiting beside it
-            var dir = Api.DataDir; var dll = Path.Combine(dir, "LunarLink.dll");
-            File.WriteAllBytes(dll + ".new", core["LunarLink.dll"]);
-            if (File.Exists(dll + ".old")) File.Delete(dll + ".old");
-            File.Move(dll, dll + ".old");                    // the loaded DLL can be renamed
-            File.Move(dll + ".new", dll);
-            foreach (var kv in core) if (kv.Key != "LunarLink.dll") Put(Path.Combine(dir, kv.Key), kv.Value);
-            var staged = Path.Combine(dir, "update");
-            if (Directory.Exists(staged)) Directory.Delete(staged, true);
-            foreach (var kv in mods) Put(Path.Combine(staged, kv.Key), kv.Value);
-            lock (gate) foreach (var m in modules) m.State = "needs core";     // the channel is judged again after the restart
-            Set("restart", "LunarLink " + latest + " is installed: restart the game to finish (the core loads only at start); it checks for newer module builds once it's back");
-        }
+        static void Set(string s, string d = null,
+            string e = null) { lock (gate) { state = s; detail = d; error = e;
+            } if (e != null) Plugin.L.LogWarning("update: " + e); else if (d != null) Plugin.L.LogInfo("update: " + d); }
 
         // Every frame, on the main thread: reload what an update put in place, and the check after a core update.
         internal static void Tick()
@@ -432,7 +230,8 @@ namespace LunarLink
                 var done = new List<string>(); var failed = new List<string>();
                 foreach (var n in names) { var ok = Reload(n); if (ok == true) done.Add(n); else if (ok == false) failed.Add(n); }
                 if (failed.Count > 0) Set("failed", "reloaded " + string.Join(", ", done), "these modules failed to start: " + string.Join(", ", failed));
-                else Set("done", "LunarLink " + latest + ": " + (done.Count > 0 ? "reloaded " + string.Join(", ", done) : "modules updated") + ", no restart needed");
+                else Set("done", "LunarLink " + latest + ": "
+                    + (done.Count > 0 ? "reloaded " + string.Join(", ", done) : "modules updated") + ", no restart needed");
             }
             if (mods != null)
             {
