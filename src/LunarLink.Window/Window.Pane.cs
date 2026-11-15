@@ -136,7 +136,7 @@ namespace LunarLink
                 for (int i = content.childCount - 1; i >= 0; i--) content.GetChild(i).SetParent(closing, false);
                 closing.sizeDelta = content.sizeDelta; closing.anchoredPosition = content.anchoredPosition;
             }
-            else Clear(content, immediate: true);   // gone now: a deferred destroy left old rows drawn under the new ones
+            else Clear(content, immediate: false);
             live.Clear(); rowTweens.Clear(); rowCount = 0;
             Clear(titleBar, immediate: false); Clear(bottomBar, immediate: false);
 
@@ -182,7 +182,10 @@ namespace LunarLink
             if (dx <= 0f || Mathf.Abs(row.sizeDelta.x - RowW) > 0.5f) return;
             for (int i = 0; i < row.childCount; i++)
             {
-                var c = row.GetChild(i) as RectTransform; if (c == null) continue;
+                // TryCast, not "as": GetChild hands back a Transform, and "as RectTransform" only worked while the interop
+                // still had this object's RectTransform wrapper cached - after a garbage collection it was null, the
+                // row's parts were skipped and the row drew narrow (Show/Hide, 2026-11-15)
+                var c = row.GetChild(i).TryCast<RectTransform>(); if (c == null) continue;
                 var p = c.anchoredPosition; var text = c.GetComponent<Text>();
                 bool leftText = text != null
                     && (text.alignment == TextAnchor.MiddleLeft || text.alignment == TextAnchor.UpperLeft
@@ -279,13 +282,6 @@ namespace LunarLink
                     if (Mathf.Abs(scroll - scrollTarget) < 0.05f) { scroll = scrollTarget; scrollVelocity = 0f; }
                     PlaceList();
                 }
-            }
-            // rows left in the closing layer with no animation running (a slide cut short by another rebuild) are old
-            // copies drawn under the list: they showed as narrow rows after Show/Hide (2026-11-15)
-            if (closingUntil <= 0f && closing != null && closing.childCount > 0)
-            {
-                Plugin.L.LogInfo("window: removed " + closing.childCount + " leftover rows");
-                Clear(closing, immediate: true); if (closingGroup != null) closingGroup.alpha = 1f;
             }
             if (closingUntil > 0f && closingGroup != null)
             {

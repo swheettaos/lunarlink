@@ -19,8 +19,9 @@ changes the core needs a game restart; modules and hot plugins always update in 
   dust meshes there) was added into the frame; it now shows apart, as `backgroundMs`.
 - **More of Unity's own frame counters** in `GET /perf`: waiting for the frame rate limit (the game caps itself at 30 fps
   while its window isn't in front), audio, UI canvases, renderer updates, particles and the game's garbage collector.
-- **Fixed: after Show / Hide of Lunar Link's modules in F9, some rows drew narrow** (old copies of the rows left under
-  the list).
+- **Fixed: F9 rows sometimes drew narrow** (after Show / Hide of Lunar Link's modules, for example): a row's parts were
+  found with a C# cast that fails once the game's garbage collector has run, so they weren't widened with the row.
+- **F9's Rescan sits beside Support file**; on the right it covered the help button next to the title.
 
 ## 1.3.1
 

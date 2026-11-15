@@ -20,7 +20,8 @@ namespace LunarLink
                 var done = Hot.ReloadChanged();
                 return done.Count == 0 ? "No newer builds on disk" : "Reloaded " + string.Join(", ", done.Select(p => DisplayNames.For(p.Name)));
             }));
-            TitleButton(false, 158, "Rescan", 96, false, () => Act(() =>
+            // left, beside Support file: on the right it covered the title's help dot
+            TitleButton(true, 138, "Rescan", 96, false, () => Act(() =>
             {
                 var (added, removed) = Hot.RescanAll();
                 return added.Count + removed.Count == 0 ? "No new or removed DLLs" : "Added " + added.Count + ", removed " + removed.Count;
