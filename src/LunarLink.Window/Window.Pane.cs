@@ -35,7 +35,7 @@ namespace LunarLink
 
         // what the tab in view shows, as one string: the list redraws only when it changes
         static string Signature() => tab + "|" + page?.Name + "|" + message + "|" + (ShowModules?.Value ?? false) + "|"
-            + PluginSettings.Pending + "|" + restartAt + "|"
+            + PluginSettings.Pending + "|" + CoreWaiting + "|" + restartAt + "|"
             + (tab == Tab.HotMods ? string.Join(",", Hot.Rows().Select(r => r.Name + r.State + r.Error + r.Newer))
              : tab == Tab.Mods ? string.Join(",", BepPlugins.List().Select(e => e.File + e.State))
              : tab == Tab.Api ? Endpoints().Count.ToString() : "") + "|" + UpdatesSignature();

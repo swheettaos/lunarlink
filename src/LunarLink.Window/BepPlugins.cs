@@ -99,7 +99,8 @@ namespace LunarLink
                 cacheChanged |= RememberName(file, p.Metadata.GUID, p.Metadata.Name);
                 var e = new Entry { Name = p.Metadata.Name, Guid = p.Metadata.GUID, Version = p.Metadata.Version?.ToString(), File = file, Loaded = true,
                                     Self = p.Metadata.GUID == "lunarlink" };
-                e.State = System.IO.File.Exists(p.Location) ? "running" : System.IO.File.Exists(p.Location + Off) ? "off from next start" : "file gone";
+                e.State = !System.IO.File.Exists(p.Location) ? (System.IO.File.Exists(p.Location + Off) ? "off from next start" : "file gone")
+                    : Changed(p.Location) ? NewerBuild : "running";
                 foreach (var q in loaded)
                     if (q != p && System.IO.File.Exists(q.Location)
                         && q.Dependencies.Any(d => d.DependencyGUID == p.Metadata.GUID && (d.Flags & BepInDependency.DependencyFlags.HardDependency) != 0))
@@ -114,6 +115,7 @@ namespace LunarLink
                 var saved = CachedName(file);
                 list.Add(new Entry { Name = saved?.Name ?? Path.GetFileNameWithoutExtension(file), Guid = saved?.Guid, File = file, State = "off" });
             }
+            NewOnDisk(list, loaded, known);
             foreach (var file in enabledNow)
                 if (!known.Contains(file) && System.IO.File.Exists(Abs(file)))
                 {
@@ -127,6 +129,57 @@ namespace LunarLink
         }
 
         static readonly HashSet<string> enabledNow = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // turned on this session
+
+        // Code changed on disk since the game started (a plugin updated or copied in by hand): it loads at the next start.
+        // A loaded plugin with a newer DLL, or a newer DLL in its folder (a library it brought), is "newer build from next
+        // start"; a DLL nothing loaded that holds a [BepInPlugin] is a new plugin, "on from next start".
+        internal const string NewerBuild = "newer build from next start";
+        static readonly DateTime gameStarted = StartedAt();
+        static DateTime StartedAt()
+        {
+            try { return System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime(); }
+            catch (Exception caught) { Quiet.Note(caught); return DateTime.UtcNow; }
+        }
+        static bool Changed(string path) => System.IO.File.GetLastWriteTimeUtc(path) > gameStarted.AddSeconds(5);
+
+        static void NewOnDisk(List<Entry> list, List<PluginInfo> loaded, HashSet<string> known)
+        {
+            foreach (var path in Directory.GetFiles(Paths.PluginPath, "*.dll", SearchOption.AllDirectories))
+            {
+                var file = Rel(path);
+                if (known.Contains(file) || enabledNow.Contains(file) || !Changed(path)) continue;
+                // a library in a loaded plugin's folder (not BepInEx/plugins/ itself): that plugin needs the restart
+                var owner = loaded.FirstOrDefault(p => Path.GetDirectoryName(p.Location) is string d
+                    && !string.Equals(d.TrimEnd('/', '\\'), Paths.PluginPath.TrimEnd('/', '\\'), StringComparison.OrdinalIgnoreCase)
+                    && path.StartsWith(d, StringComparison.OrdinalIgnoreCase));
+                if (owner != null)
+                {
+                    var e = list.FirstOrDefault(x => string.Equals(x.File, Rel(owner.Location), StringComparison.OrdinalIgnoreCase));
+                    if (e != null && e.State == "running") e.State = NewerBuild;
+                    continue;
+                }
+                var name = PluginNameIn(path);
+                if (name == null) continue;                                            // a library, not a plugin
+                known.Add(file);
+                list.Add(new Entry { Name = name, File = file, State = "on from next start" });
+            }
+        }
+
+        // the [BepInPlugin] name in a DLL, read without loading it (null: none, or not .NET)
+        static string PluginNameIn(string path)
+        {
+            try
+            {
+                using var asm = Mono.Cecil.AssemblyDefinition.ReadAssembly(path);
+                foreach (var t in asm.MainModule.Types)
+                    foreach (var a in t.CustomAttributes)
+                        if (a.AttributeType.FullName == "BepInEx.BepInPlugin" && a.ConstructorArguments.Count >= 2)
+                            return a.ConstructorArguments[1].Value as string;
+            }
+            catch (BadImageFormatException) { }                                        // a native DLL
+            catch (Exception caught) { Quiet.Note(caught); }
+            return null;
+        }
 
         // what a reload of the window module hands over: the files turned on this session, one a line
         internal static string Handover() => string.Join("\n", enabledNow);

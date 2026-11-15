@@ -3,6 +3,13 @@
 Each release's section is its notes on the GitHub releases page (`tools/release.sh` copies it there). Only a release that
 changes the core needs a game restart; modules and hot plugins always update in place.
 
+## Unreleased
+
+- **Restart & Apply pops up when code changes on disk**, not only for settings: a normal plugin whose DLL (or a library
+  in its folder) is newer than the running game, a new plugin copied into `BepInEx/plugins/`, or a new LunarLink core
+  waiting to load. The row says "newer build from next start" or "on from next start"; the button shows on Mods (and on
+  Updates for a core). Hot mods don't need it: they reload in place.
+
 ## 1.3.1
 
 - **The F9 window is rebuilt** (Ty's rebuild) and fills the screen better. Four tabs: **Hot Mods** (was HOT PLUGINS),

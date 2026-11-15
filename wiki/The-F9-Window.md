@@ -42,7 +42,8 @@ The normal plugins in `BepInEx/plugins/`, with their version and what needs them
   can't turn itself off.
 - **Settings**, when it has a config file.
 
-While a change waits for a restart, **Restart & Apply** shows at the top right: it saves the game, closes it and starts
+While a change waits for a restart (a plugin turned on or off, a setting changed, a plugin's DLL updated or a new one
+copied in, or a new LunarLink core installed), **Restart & Apply** shows at the top right: it saves the game, closes it and starts
 it again. On Windows Steam starts it; under Proton (Linux) LunarLink starts it with Proton's own wine once the old one
 has closed, and writes what it did to `BepInEx/lunarlink-restart.log`. If it can't start the helper, the game stays open
 and the foot says to restart it yourself.

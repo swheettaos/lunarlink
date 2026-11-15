@@ -140,11 +140,25 @@ namespace LunarLink
         static void AddMods()
         {
             AddSupportButton();
-            bool restart = PluginSettings.Pending || BepPlugins.List().Any(e => e.State.Contains("next start"));
+            bool restart = PluginSettings.Pending || CoreWaiting || BepPlugins.List().Any(e => e.State.Contains("next start"));
             if (restart) TitleButton(false, 0, restartAt > 0f ? "Saving..." : "Restart & Apply", 170, true, restartAt > 0f ? null : (Action)Restart);
             var list = BepPlugins.List();
             if (list.Count == 0) NoteRow("b:none", "No plugins");
             foreach (var e in list) AddBepPlugin(e);
+        }
+
+        // a new LunarLink core installed (in the game, or by build.sh --install): it loads at the next start
+        static bool CoreWaiting
+        {
+            get
+            {
+                try
+                {
+                    var f = System.IO.Path.Combine(Api.DataDir, "installed-version");
+                    return System.IO.File.Exists(f) && System.IO.File.ReadAllText(f).Trim() is string v && v.Length > 0 && v != Pump.PluginVersion;
+                }
+                catch (Exception caught) { Quiet.Note(caught); return false; }
+            }
         }
 
         static void AddBepPlugin(BepPlugins.Entry e)
@@ -160,19 +174,16 @@ namespace LunarLink
             if (actionsRow == null) return;
 
             RowText(actionsRow, file, 0, 330, 13, Dim);
-            Action toggle = e.Self || e.State == "file gone" ? null
-                : e.State == "running"
-                    ? () => Act(() => { fadeIn.Add(key);
-                    return BepPlugins.Disable(file)
-                    ?? "Turned off: " + file + ". Restart the game to apply (it keeps running until then)"; })
-                : e.State == "on from next start"
-                    ? () => Act(() => { fadeIn.Add(key);
-                    return BepPlugins.Disable(file) ?? "Turned back off: " + file + ". It never loaded, so no restart is needed";
-                })
-                : (Action)(() => Act(() => { fadeIn.Add(key);
-                    return BepPlugins.Enable(file)
-                    ?? (e.Loaded ? "Turned back on: " + file + ". It never stopped, so no restart is needed"
-                    : "Turned on: " + file + ". Restart the game to apply"); }));
+            // on or off for the next start: the message says whether that needs a restart
+            string Toggle()
+            {
+                fadeIn.Add(key);
+                if (off) return BepPlugins.Enable(file) ?? (e.Loaded ? "Turned back on: " + file + ". It never stopped, so no restart is needed"
+                                                                     : "Turned on: " + file + ". Restart the game to apply");
+                return BepPlugins.Disable(file) ?? (e.Loaded ? "Turned off: " + file + ". Restart the game to apply (it keeps running until then)"
+                                                             : "Turned back off: " + file + ". It never loaded, so no restart is needed");
+            }
+            Action toggle = e.Self || e.State == "file gone" ? null : () => Act(Toggle);
             Action settings = PluginSettings.For(e.Name, e.Guid, file).Count > 0
                 ? () => OpenSettings(new SettingsPage { Title = display, Name = e.Name, Guid = e.Guid, File = file, Hot = false }) : (Action)null;
             var buttons = new List<(string, float, bool, Action)>();
@@ -281,6 +292,8 @@ namespace LunarLink
             if (!u.on) { NoteRow("u:off",
                 "Updates are off: the Lunar Link Updates module isn't running (Show Lunar Link Modules on Hot Mods and Enable it)"); return; }
             bool restart = u.state == "restart", canAct = !u.busy && !restart;
+            if (restart || CoreWaiting)                            // a new core is in: one restart loads it
+                TitleButton(false, 0, restartAt > 0f ? "Saving..." : "Restart & Apply", 170, true, restartAt > 0f ? null : (Action)Restart);
 
             var rows = new List<(string key, string title, string state, Color colour, string detail, Func<string> update)>();
             string core = u.state == "available" ? u.latest + " available" : restart ? "restart to finish" : u.state == "failed" ? "failed"
