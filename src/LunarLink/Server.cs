@@ -58,6 +58,9 @@ namespace LunarLink
                 "Key that opens and closes the hot plugin window (an Input System key name, for example F9).");
             Pump.Routes(); Hot.Routes();                                // the core's own endpoints, in the route table
             Updates.Finish();                                          // a core update installed last run: its modules into BepInEx/hot/
+            var recoverFramework = Config.Bind("Safety", "Recover empty MoonFramework saves", true,
+                "Restore a damaged empty MoonFramework save from LunarLink's last known-good backup before the world loads.");
+            L.LogInfo("MoonFramework recovery: " + FrameworkRecovery.Run(recoverFramework.Value));
             try { Hot.LoadAll(); } catch (Exception e) { L.LogError("hot: " + e); }   // Boot() here: before MoonFramework's build menu
             L.LogInfo("LunarLink listening on " + listening + (IPAddress.IsLoopback(((IPEndPoint)listener.LocalEndpoint).Address) ? " (this machine only)"
                 : AccessKey.Length > 0 ? " (other machines with the access key)" : " (other machines refused: no access key set)"));
