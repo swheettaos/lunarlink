@@ -1,5 +1,6 @@
 # LunarLink
 
+<!-- intro: the wiki's Home page starts with everything down to /intro (tools/wiki.py copies it) -->
 ![LunarLink: hot plugins for Moon Sweepers](docs/header.png)
 
 **A framework for Moon Sweepers plugins that reload while the game runs.** Write a new plugin, or convert one you
@@ -16,9 +17,8 @@ plugin.
 - **LunarLink is built the same way.** Its own features are hot modules: `LunarLink.Api` (the endpoints),
   `LunarLink.Perf` (measuring and fps fixes), `LunarLink.Window` (F9) and `LunarLink.Update` (updates). Reload one, or turn it off and it leaves
   memory too - turn off the API and only the core's `/status` and `/hot/*` still answer.
-- **Updates, for LunarLink and your plugins.** F9's UPDATES tab checks (when you ask, or at every game start if you
-  tick that) and installs LunarLink's
-  releases, its single modules as built from `main`, and any plugin that says where its builds are with
+- **Updates, for LunarLink and your plugins.** F9's Updates tab checks (when you ask, or at every game start if you
+  turn that on) and installs LunarLink's releases, its single modules as built from `main`, and any plugin that says where its builds are with
   `UpdateFeed()`: on GitHub or any public HTTPS host. **Only the core needs a restart:** every module and every hot
   plugin updates in place while the game runs.
 - **Your regular plugins too.** F9 and `/plugins` list every normal BepInEx plugin with its version and what needs it,
@@ -76,6 +76,7 @@ There are three ways to hook in:
 
 Every endpoint, LunarLink's own included, goes through the same route table, the same `allow-writes` check and the
 same `/help` list.
+<!-- /intro -->
 
 ## Hot plugins
 
@@ -175,10 +176,11 @@ list stays **off** until you enable it, so nothing runs just because a file appe
 | `POST /hot/enable?name=` · `/hot/disable?name=` | Turn it on (load and start) or off (stop and unload), and remember it |
 | `POST /hot/rescan` | Pick up DLLs added to or removed from the folder |
 
-**In the game, F9** opens LunarLink's window: every hot plugin with its state, build time, a "newer build on disk"
-mark and its error, with Enable, Disable and Reload, plus Reload changed and Rescan. Its other tabs turn **normal
-BepInEx plugins** on or off for the next start (the DLL is renamed to `.dll.disabled` and back; a plugin another one
-needs can't be turned off) and list every endpoint.
+**In the game, F9** opens LunarLink's window. **Hot Mods** lists every hot plugin with its version, state, a "newer
+build on disk" mark and its error, with Enable, Disable, Reload and its settings, plus Reload changed and Rescan.
+**Mods** turns **normal BepInEx plugins** on or off for the next start (the DLL is renamed to `.dll.disabled` and
+back; a plugin another one needs can't be turned off) and edits their settings; **API** lists every endpoint and
+**Updates** installs updates. See [The F9 Window](https://github.com/swheettaos/lunarlink/wiki/The-F9-Window).
 
 ### What LunarLink checks for you
 
@@ -292,8 +294,8 @@ finishes, and a watcher thread writes **`MAIN THREAD STUCK`** with the last 400 
 **From a release:** download `LunarLink-<version>.zip` from [Nexus Mods](https://www.nexusmods.com/moonsweepers/mods/158) or the [latest release](https://github.com/swheettaos/lunarlink/releases/latest), close the game and unzip it
 into the game's folder (the one that holds `BepInEx/`). Needs only BepInEx 6 (IL2CPP); MoonFramework is optional: LunarLink uses it only for Perf's power fix and for plugins that add buildings.
 
-**Updating from the game:** F9's UPDATES tab has **Check for updates**, which asks GitHub for the latest release and
-the module channel (only when you press it, unless you tick **Check for updates at game start**): a newer release gets
+**Updating from the game:** F9's Updates tab has **Check for updates**, which asks GitHub for the latest release and
+the module channel (only when you press it, unless you turn on **Check at Game Start**): a newer release gets
 an **Update** button, and so does each module with a
 newer build from `main`. The download is checked against the SHA-256 GitHub publishes.
 If only the modules changed, they reload in place with no restart; if the core changed, the new core is put in place and
@@ -355,7 +357,7 @@ The core: status and hot plugins.
 | `GET /status` | Is LunarLink up: its build, whether a world is loaded, game time, queue and frames |
 | `GET /support` | Write a support file (BepInEx/lunarlink-support-<time>.zip) to attach to a GitHub issue: what failed, logs, plugins, settings, names blanked out |
 | `GET /hot/list` | ?gc=1 : the hot plugins: state, build, newer build on disk, errors, leftovers, old copies still in memory |
-| `POST /hot/reload` | ?name= : reload a hot plugin from the build on disk now (and turn it on); ?all=1 : every one with a newer build |
+| `POST /hot/reload` | ?name= : reload a hot plugin from the build on disk now (and turn it on); a wrapped plugin that loads its own content waits for the main menu while a world is loaded; ?all=1 : every one with a newer build |
 | `POST /hot/enable` | ?name= : load and start a hot plugin, and remember it's on |
 | `POST /hot/disable` | ?name= : stop and unload a hot plugin, and remember it's off |
 | `POST /hot/rescan` | Pick up DLLs added to or removed from BepInEx/hot/ |

@@ -39,7 +39,7 @@ what a hot plugin does for itself.
 | Written for LunarLink | Yes | No | No |
 | Reload while playing | Yes, keeps its state | Yes, starts fresh | No |
 | Turn off while playing | Yes, leaves memory | Yes, see [Memory](#7-memory) | Next start only |
-| In-game updates (F9 → UPDATES) | If it has an update feed | If it has an update feed | Restart to apply |
+| In-game updates (F9 → Updates) | If it has an update feed | If it has an update feed | Restart to apply |
 | Status | Stable | **Experimental** | As BepInEx |
 
 ## Using it
@@ -49,7 +49,7 @@ what a hot plugin does for itself.
    - **a DLL with files of its own** (data, resources, other DLLs): its whole folder, named like its DLL,
      `BepInEx/hot/MarsSweepers/MarsSweepers.dll` with its files beside it.
 2. Make sure no copy is left in `BepInEx/plugins/`: a plugin in both would load twice, so LunarLink refuses the hot one.
-3. Start the game and turn it on in **F9 → HOT PLUGINS → Enable** (a new plugin starts off). It stays on from then on,
+3. Start the game and turn it on in **F9 → Hot Mods → Enable** (a new plugin starts off). It stays on from then on,
    and loads at game start like it did from `plugins/`.
 
 **Never move MoonFramework.** It must stay in `BepInEx/plugins/`: it can't be hot-swapped (see
@@ -365,7 +365,7 @@ The wrapper is split so that improving it never needs a game restart:
 | Part | Where | What | Reloads |
 |---|---|---|---|
 | `HotTrack` (`src/LunarLink/Track.cs`) | the core | What rewritten plugins call: the thread guard, the records of timers, hooks and events, `Location`; the pinned bridges; letting go of destroyed objects | No (game start). Kept small and stable, because running wrapped plugins call into it |
-| `IWrapper` slot (`src/LunarLink/Wrapping.cs`, `Hot.cs`) | the core | Where the loader asks the module to prepare and adapt a DLL | No |
+| `IWrapper` slot (`src/LunarLink/Wrapping.cs`, `Hot.Load.cs`) | the core | Where the loader asks the module to prepare and adapt a DLL | No |
 | `LunarLink.Wrap` (`src/LunarLink.Wrap/`) | `BepInEx/hot/` | Deciding, rewriting (`Rewriter.cs`), starting and stopping (`Adapter.cs`), destroying objects | **Yes**: a reload takes effect for plugins loaded after it |
 
 Reloading or turning off **LunarLink.Wrap** doesn't touch plugins it already wrapped: they keep their adapter (and
@@ -373,7 +373,7 @@ that copy of the module stays in memory) until they're reloaded or turned off th
 
 ## Seeing what it did
 
-- **F9 → HOT PLUGINS**: a wrapped plugin is marked **wrapped**; its **?** lists what's tracked ("1 thread, 1 native
+- **F9 → Hot Mods**: a wrapped plugin is marked **wrapped**; open its row for what's tracked ("1 thread, 1 native
   hook"), whether it asks for its location, and anything it can't undo. **off at restart** means it hooks natively in a
   way that waits for a restart.
 - **`GET /hot/list`**: `"wrapped": true`, `"warnings"` (the same list), `"leftovers"` (what an off couldn't undo),

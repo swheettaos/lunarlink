@@ -35,7 +35,7 @@ This holds for plugins' endpoints too: LunarLink passes a `POST` on to a plugin 
 | `[Hot plugins]` setting | Default | What it does |
 |---|---|---|
 | `Window key` | `F9` | The key that opens and closes [[The F9 Window]] (an Input System key name) |
-| `Show LunarLink modules` | off | Whether the window lists LunarLink's own modules among the hot plugins (also a tick box in the window) |
+| `Show LunarLink modules` | off | Whether the window lists LunarLink's own modules among the hot plugins (also **Lunar Link Modules** in the window) |
 
 ## Files LunarLink keeps
 

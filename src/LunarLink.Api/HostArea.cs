@@ -3,7 +3,7 @@ namespace LunarLink
     // Crew games: what the hosted game publishes to Steam, its name, and the players' vehicles.
     static class HostArea
     {
-        internal static void Start(string state)
+        internal static void Start()
         {
             Api.Get("/lobby", "What the hosted game publishes to Steam: the crew name and every lobby key", r => Lobby.Data());
             Api.Post("/lobby/modify", "?name= sets the hosted game's name; or ?key=&value= sets one lobby key. Host only", r =>

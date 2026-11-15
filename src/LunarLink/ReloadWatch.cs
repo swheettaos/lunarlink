@@ -21,7 +21,8 @@ namespace LunarLink
         // a reload is starting: watch this plugin's errors for a while (its code is named "<assembly>." in a stack)
         internal static void Begin(Hot.Plugin p)
         {
-            if (!listening) { listening = true; try { BepInEx.Logging.Logger.Listeners.Add(new Listener()); } catch { } }
+            if (!listening) { listening = true; try { BepInEx.Logging.Logger.Listeners.Add(new Listener()); }
+                catch (System.Exception caught) { Quiet.Note(caught); } }
             var code = p.Asm?.GetName().Name ?? p.Name;
             lock (gate) watched[p.Name] = (code + ".", Time.realtimeSinceStartup + Seconds, 0);
         }

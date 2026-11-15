@@ -21,7 +21,8 @@ namespace LunarLink
         internal static void Finish()
         {
             var dir = Api.DataDir;
-            try { if (File.Exists(Path.Combine(dir, "LunarLink.dll.old"))) File.Delete(Path.Combine(dir, "LunarLink.dll.old")); } catch { }
+            try { if (File.Exists(Path.Combine(dir, "LunarLink.dll.old"))) File.Delete(Path.Combine(dir, "LunarLink.dll.old")); }
+            catch (System.Exception caught) { Quiet.Note(caught); }
             var staged = Path.Combine(dir, "update");
             if (!Directory.Exists(staged)) return;
             try

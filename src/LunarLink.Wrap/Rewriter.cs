@@ -25,7 +25,8 @@ namespace LunarLink
             {
                 get
                 {
-                    var tracked = new[] { (Threads, "thread"), (Timers, "timer"), (Detours, "native hook"), (Events, "event subscription"), (Bundles, "asset bundle load") }
+                    var tracked = new[] { (Threads, "thread"), (Timers, "timer"), (Detours, "native hook"),
+                        (Events, "event subscription"), (Bundles, "asset bundle load") }
                         .Where(x => x.Item1 > 0).Select(x => x.Item1 + " " + x.Item2 + (x.Item1 == 1 ? "" : "s")).ToList();
                     var parts = new List<string>();
                     if (tracked.Count > 0) parts.Add("tracked: " + string.Join(", ", tracked) + " (undone when it's turned off)");
@@ -41,7 +42,8 @@ namespace LunarLink
             using var m = ModuleDefinition.ReadModule(new MemoryStream(dll));
             var types = m.GetTypes().ToList();
             bool hot = types.Any(t => t.IsPublic && t.IsClass && !t.IsAbstract
-                && t.Methods.Any(x => x.Name == "Start" && x.IsPublic && !x.IsStatic && x.Parameters.Count == 1 && x.Parameters[0].ParameterType.FullName == "System.String")
+                && t.Methods.Any(x => x.Name == "Start" && x.IsPublic && !x.IsStatic && x.Parameters.Count == 1
+                    && x.Parameters[0].ParameterType.FullName == "System.String")
                 && t.Methods.Any(x => x.Name == "Stop" && x.IsPublic && !x.IsStatic && x.Parameters.Count == 0 && x.ReturnType.FullName == "System.String"));
             return !hot && types.Any(t => t.CustomAttributes.Any(a => a.AttributeType.FullName == "BepInEx.BepInPlugin"));
         }
@@ -98,7 +100,9 @@ namespace LunarLink
                         else if (ins.OpCode == OpCodes.Newobj && decl == "System.Threading.Thread")
                         {
                             var args = mr.Parameters.Select(p => p.ParameterType.FullName == "System.Int32" ? typeof(int)
-                                : p.ParameterType.FullName == "System.Threading.ThreadStart" ? typeof(System.Threading.ThreadStart) : typeof(System.Threading.ParameterizedThreadStart)).Append(typeof(int)).ToArray();
+                                : p.ParameterType.FullName == "System.Threading.ThreadStart"
+                                    ? typeof(System.Threading.ThreadStart)
+                                    : typeof(System.Threading.ParameterizedThreadStart)).Append(typeof(int)).ToArray();
                             var nt = track.GetMethod(nameof(HotTrack.NewThread), args);
                             if (nt == null) continue;
                             ins.OpCode = OpCodes.Ldc_I4; ins.Operand = id;
@@ -106,7 +110,9 @@ namespace LunarLink
                             s.Threads++; i++;
                         }
                         // timers and native detours: kept, to be disposed
-                        else if ((ins.OpCode == OpCodes.Newobj && (decl == "System.Threading.Timer" || decl == "System.Timers.Timer" || IsDetourType(mr.DeclaringType)))
+                        else if ((ins.OpCode == OpCodes.Newobj
+                            && (decl == "System.Threading.Timer" || decl == "System.Timers.Timer"
+                            || IsDetourType(mr.DeclaringType)))
                             || ((ins.OpCode == OpCodes.Call || ins.OpCode == OpCodes.Callvirt) && IsDetourType(mr.ReturnType)))
                         {
                             var after = new[] { il.Create(OpCodes.Dup), il.Create(OpCodes.Ldc_I4, id), il.Create(OpCodes.Call, keep) };
@@ -133,7 +139,8 @@ namespace LunarLink
                             var pt = mr.Parameters[0].ParameterType;
                             var h = new VariableDefinition(pt.ContainsGenericParameter ? m.TypeSystem.Object : pt); body.Variables.Add(h);
                             VariableDefinition target = null;
-                            if (mr.HasThis) { target = new VariableDefinition(mr.DeclaringType.ContainsGenericParameter ? m.TypeSystem.Object : mr.DeclaringType); body.Variables.Add(target); }
+                            if (mr.HasThis) { target = new VariableDefinition(mr.DeclaringType.ContainsGenericParameter
+                                ? m.TypeSystem.Object : mr.DeclaringType); body.Variables.Add(target); }
                             var call = il.Create(ins.OpCode, mr);
                             // the add call becomes "store the handler", so branches to it still land on the start
                             ins.OpCode = OpCodes.Stloc; ins.Operand = h;
@@ -157,12 +164,14 @@ namespace LunarLink
             var native = new List<string>();
             if (m.GetMemberReferences().Any(r => r.Name == "GetFunctionPointerForDelegate")) native.Add("Marshal.GetFunctionPointerForDelegate");
             foreach (var t in m.GetTypes()) foreach (var x in t.Methods.Where(x => x.IsPInvokeImpl && x.PInvokeInfo != null))
-                if (x.Name.Contains("Protect") || x.PInvokeInfo.Module.Name.ToLowerInvariant().Contains("dobby") || x.PInvokeInfo.Module.Name.ToLowerInvariant().Contains("minhook"))
+                if (x.Name.Contains("Protect") || x.PInvokeInfo.Module.Name.ToLowerInvariant().Contains("dobby")
+                    || x.PInvokeInfo.Module.Name.ToLowerInvariant().Contains("minhook"))
                     native.Add(x.PInvokeInfo.Module.Name + "!" + x.Name);
             if (native.Count > 0)
             {
                 s.Native = true;
-                s.Warnings.Add("hooks game code natively some other way (" + string.Join(", ", native.Distinct().Take(3)) + "): turning it off or reloading it waits for a restart");
+                s.Warnings.Add("hooks game code natively some other way (" + string.Join(", ", native.Distinct().Take(3))
+                    + "): turning it off or reloading it waits for a restart");
             }
             if (m.GetMemberReferences().Any(r => r.DeclaringType?.FullName == "System.Threading.Tasks.TaskCreationOptions" || r.Name == "UnsafeStart"))
                 s.Warnings.Add("may start long-running tasks: turning it off may not stop them");
@@ -202,7 +211,7 @@ namespace LunarLink
                         using var other = ModuleDefinition.ReadModule(f);
                         if (other.AssemblyReferences.Any(r => r.Name == name)) users.Add(Path.GetFileNameWithoutExtension(f));
                     }
-                    catch { }                                              // not a .NET DLL
+                    catch (System.Exception caught) { Quiet.Note(caught); }                                              // not a .NET DLL
                 }
             return users.Count == 0 ? null : users.Distinct().OrderBy(x => x).ToList();
         }
@@ -213,7 +222,8 @@ namespace LunarLink
             var root = BepInEx.Paths.BepInExRootPath;
             yield return Path.Combine(root, "core"); yield return Path.Combine(root, "interop"); yield return Path.Combine(root, "hot");
             var plugins = Path.Combine(root, "plugins");
-            if (Directory.Exists(plugins)) { yield return plugins; foreach (var d in Directory.GetDirectories(plugins, "*", SearchOption.AllDirectories)) yield return d; }
+            if (Directory.Exists(plugins)) { yield return plugins;
+                foreach (var d in Directory.GetDirectories(plugins, "*", SearchOption.AllDirectories)) yield return d; }
         }
 
     }

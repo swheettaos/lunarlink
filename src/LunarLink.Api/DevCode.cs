@@ -22,6 +22,10 @@ namespace LunarLink
     // runs the game's metadata init and is not used).
     static class DevCode
     {
+        // every method a class declares itself, public or not, static or not
+        const BindingFlags Declared = BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic
+            | BindingFlags.DeclaredOnly;
+
         [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
         [DllImport("kernel32.dll")] static extern bool ReadProcessMemory(IntPtr proc, IntPtr addr, byte[] buf, UIntPtr size, out UIntPtr read);
         static readonly IntPtr self = GetCurrentProcess();
@@ -75,7 +79,7 @@ namespace LunarLink
             codeNames = new();
             stringClass = Il2CppClassPointerStore<string>.NativeClassPtr;
             foreach (var t in AllTypes())
-                foreach (var m in t.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+                foreach (var m in t.GetMethods(Declared))
                 {
                     var c = CodeOf(m); if (c != IntPtr.Zero) codeNames.TryAdd(c.ToInt64(), Name(m));
                 }
@@ -115,11 +119,11 @@ namespace LunarLink
         public static string Xref(string find, string type)
         {
             Index();
-            var sb = new StringBuilder("{\"ok\":true,\"hits\":["); int n = 0, scanned = 0;
+            var o = new JsonOut().Obj().Bool("ok", true).Arr("hits"); int scanned = 0;
             foreach (var t in GameTypes())
             {
                 if (!string.IsNullOrEmpty(type) && t.FullName != type) continue;
-                foreach (var m in t.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+                foreach (var m in t.GetMethods(Declared))
                 {
                     var code = CodeOf(m);
                     if (m.IsGenericMethodDefinition || code == IntPtr.Zero) continue;
@@ -128,25 +132,24 @@ namespace LunarLink
                     {
                         if (!ins.IsIPRelativeMemoryOperand) continue;
                         var s = Slot((IntPtr)(long)ins.IPRelativeMemoryAddress); if (s == null || !s.Contains(find)) continue;
-                        if (n++ > 0) sb.Append(',');
-                        sb.Append("{\"method\":").Append(J.S(Name(m))).Append(",\"text\":").Append(J.S(s)).Append('}');
+                        o.Obj().Str("method", Name(m)).Str("text", s).End();
                     }
                 }
             }
-            return sb.Append("],\"scanned\":").Append(scanned).Append('}').ToString();
+            return o.End().Num("scanned", scanned);
         }
 
         public static string Dis(string type, string method, int which, int maxBytes)
         {
             Index();
             Type t = null; foreach (var x in AllTypes()) if (x.FullName == type) { t = x; break; }
-            if (t == null) return "{\"ok\":false,\"reason\":\"no type\"}";
+            if (t == null) return Api.Result(false, "no type");
             var ms = new List<MethodBase>();
-            foreach (var m in t.GetMethods(BindingFlags.Instance | BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+            foreach (var m in t.GetMethods(Declared))
                 if (m.Name == method) ms.Add(m);
-            if (which >= ms.Count) return "{\"ok\":false,\"reason\":\"no such method (" + ms.Count + " overloads)\"}";
+            if (which >= ms.Count) return Api.Result(false, "no such method (" + ms.Count + " overloads)");
             var mb = ms[which]; var code = CodeOf(mb);
-            if (code == IntPtr.Zero) return "{\"ok\":false,\"reason\":\"no code pointer\"}";
+            if (code == IntPtr.Zero) return Api.Result(false, "no code pointer");
             var fmt = new NasmFormatter(); var outp = new StringOutput();
             var sb = new StringBuilder(); sb.Append("== ").Append(Name(mb)).Append(" @ 0x").Append(code.ToString("X")).Append('\n');
             foreach (var ins in Decode(code, maxBytes))
@@ -166,23 +169,26 @@ namespace LunarLink
         public static string NameAt(string hex)
         {
             Index();
-            if (!long.TryParse(hex.Replace("0x", ""), System.Globalization.NumberStyles.HexNumber, null, out var a)) return "{\"ok\":false}";
-            if (codeNames.TryGetValue(a, out var n)) return "{\"ok\":true,\"exact\":true,\"name\":" + J.S(n) + "}";
+            if (!long.TryParse(hex.Replace("0x", ""), System.Globalization.NumberStyles.HexNumber, null,
+                out var a)) return Api.Result(false, "not a hex address");
+            if (codeNames.TryGetValue(a, out var n)) return new JsonOut().Obj().Bool("ok", true).Bool("exact", true).Str("name", n);
             long best = 0; string bn = null;
             foreach (var kv in codeNames) if (kv.Key < a && kv.Key > best) { best = kv.Key; bn = kv.Value; }
-            return "{\"ok\":true,\"exact\":false,\"nearestBelow\":" + J.S(bn) + ",\"offset\":" + (a - best) + "}";
+            return new JsonOut().Obj().Bool("ok", true).Bool("exact", false).Str("nearestBelow", bn).Num("offset", a - best);
         }
 
         public static string Fields(string type)
         {
             Type t = null; foreach (var x in AllTypes()) if (x.FullName == type) { t = x; break; }
-            if (t == null) return "{\"ok\":false,\"reason\":\"no type\"}";
+            if (t == null) return Api.Result(false, "no type");
             var rows = new List<(int off, string name)>();
             for (var tt = t; tt != null && tt != typeof(Il2CppObjectBase); tt = tt.BaseType)
                 foreach (var f in tt.GetFields(BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
                 {
                     if (!f.Name.StartsWith("NativeFieldInfoPtr_")) continue;
-                    try { var p = (IntPtr)f.GetValue(null); if (p != IntPtr.Zero) rows.Add(((int)IL2CPP.il2cpp_field_get_offset(p), tt.Name + "." + f.Name.Substring(19))); } catch { }
+                    try { var p = (IntPtr)f.GetValue(null);
+                        if (p != IntPtr.Zero) rows.Add(((int)IL2CPP.il2cpp_field_get_offset(p), tt.Name + "."
+                        + f.Name.Substring(19))); } catch (System.Exception caught) { Quiet.Note(caught); }
                 }
             rows.Sort((a, b) => a.off.CompareTo(b.off));
             var sb = new StringBuilder(); foreach (var r in rows) sb.Append("0x").Append(r.off.ToString("X")).Append("  ").Append(r.name).Append('\n');

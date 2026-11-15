@@ -4,6 +4,7 @@
   <!-- include: endpoints -->          every LunarLink endpoint with its details (tools/endpoints.py, docs/endpoints.toml)
   <!-- include: docs/HOT_PLUGINS.md --> that document, with its links made wiki links
   <!-- include: samples/... .cs -->     that file's source
+  <!-- include: README.md#intro -->     the README's opening (between its intro markers), its links made wiki or GitHub links
 .github/workflows/wiki.yml runs this on every push to main and publishes the result to the GitHub wiki.
 Run it yourself to look:  python3 tools/wiki.py [out]"""
 import os, re, shutil, sys
@@ -27,8 +28,24 @@ def guide():
     return s.replace("copy `Directory.Build.props` from here",
                      "copy [`Directory.Build.props`](https://github.com/swheettaos/lunarlink/blob/main/Directory.Build.props) from the repo")
 
+# the README's opening for the wiki's Home page: one text kept in one place
+WIKI_PAGES = {"docs/HOT_PLUGINS.md": "Writing-a-Hot-Plugin", "mcp/README.md": "MCP"}
+def readme_intro():
+    s = read("README.md")
+    m = re.search(r"<!-- intro[^>]*-->\n(.*?)<!-- /intro -->", s, re.S)
+    if not m: raise SystemExit("README.md has no intro markers: tools/wiki.py copies the wiki's Home opening from between them")
+    def link(l):
+        target = l.group(2)
+        if re.match(r"(https?:|#|mailto:)", target): return l.group(0)
+        path, _, anchor = target.partition("#")
+        if path in WIKI_PAGES: return f"[{l.group(1)}]({WIKI_PAGES[path]}{'#' + anchor if anchor else ''})"
+        if path == "docs/header.png": return f"[{l.group(1)}](https://swheettaos.github.io/lunarlink/header.png)"
+        return f"[{l.group(1)}](https://github.com/swheettaos/lunarlink/blob/main/{target})"
+    return re.sub(r"\[([^\]]*)\]\(([^)]+)\)", link, m.group(1)).rstrip()
+
 def include(m):
     what = m.group(1).strip()
+    if what == "README.md#intro": return readme_intro()
     if what == "endpoints": return endpoints()
     if what == "docs/HOT_PLUGINS.md": return guide()
     if what.endswith(".cs"): return read(what).rstrip()

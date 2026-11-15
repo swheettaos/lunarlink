@@ -41,7 +41,7 @@ namespace LunarLink
             {
                 string r;
                 try { r = (string)e.Http.Invoke(e.Obj, new object[] { method, path, query, body }); }
-                catch (Exception x) { var i = x.InnerException ?? x; return "{\"error\":" + J.S(e.Name + ": " + i.GetType().Name + ": " + i.Message) + "}"; }
+                catch (Exception x) { var i = x.InnerException ?? x; return Api.Error(e.Name + ": " + i.GetType().Name + ": " + i.Message); }
                 if (r != null) return r;
             }
             return null;

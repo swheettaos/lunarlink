@@ -42,7 +42,8 @@ namespace LunarLink
                         var nd = nativeDetourF.GetValue(mp);
                         if (nd == null) continue;
                         var ptr = nd.GetType().GetProperty("Detour", Any | BindingFlags.Instance)?.GetValue(nd);
-                        if (ptr == null || (IntPtr)ptr == IntPtr.Zero) { problem = "can't read the live bridge of " + nd.GetType().FullName + "; nothing freed"; return; }
+                        if (ptr == null || (IntPtr)ptr == IntPtr.Zero) { problem = "can't read the live bridge of "
+                            + nd.GetType().FullName + "; nothing freed"; return; }
                         livePtrs.Add((IntPtr)ptr);
                     }
                 var dead = new HashSet<object>(ReferenceEqualityComparer.Instance);
@@ -57,7 +58,8 @@ namespace LunarLink
                 foreach (var d in cache) if (deadBefore.Contains(d) && dead.Contains(d)) gone.Add(d.GetType());
                 int n = cache.RemoveAll(d => deadBefore.Contains(d) && dead.Contains(d));
                 freed += n;
-                var typeCache = (System.Collections.IDictionary)typeof(HarmonyLib.DelegateTypeFactory).GetField("TypeCache", Any | BindingFlags.Static)?.GetValue(null);
+                var typeCache = (System.Collections.IDictionary)typeof(HarmonyLib.DelegateTypeFactory).GetField("TypeCache",
+                    Any | BindingFlags.Static)?.GetValue(null);
                 if (typeCache != null && gone.Count > 0)
                     lock (typeCache)
                     {
@@ -84,8 +86,9 @@ namespace LunarLink
                 var t = Type.GetType("Il2CppInterop.HarmonySupport.Il2CppDetourMethodPatcher, Il2CppInterop.HarmonySupport");
                 kept = ((List<object>)t?.GetField("DelegateCache", Any | BindingFlags.Static)?.GetValue(null))?.Count ?? -1;
             }
-            catch { }
-            return "{\"kept\":" + kept + ",\"freed\":" + freed + ",\"typesFreed\":" + typesFreed + ",\"waiting\":" + deadBefore.Count + ",\"problem\":" + J.S(problem) + "}";
+            catch (System.Exception caught) { Quiet.Note(caught); }
+            return new JsonOut().Obj().Num("kept", kept).Num("freed", freed).Num("typesFreed", typesFreed).Num("waiting",
+                deadBefore.Count).Str("problem", problem);
         }
     }
 }

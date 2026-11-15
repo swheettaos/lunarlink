@@ -1,8 +1,6 @@
 using System;
-using System.Text;
 using MoonCleaners;
 using Steamworks;
-using UnityEngine;
 
 namespace LunarLink
 {
@@ -14,35 +12,37 @@ namespace LunarLink
     //                                     and with refund=1 put its garage price back into the team money
     static class Vehicles
     {
-        static double PriceOf(MoonWorld w, int vehicle)
+        static double PriceOf(int vehicle)
         {
-            try { foreach (var o in MoonWorld.GarageOffers) if (o.vehicle == vehicle) return Il2CppSystem.Decimal.ToDouble(o.price); } catch { }
+            try { foreach (var o in MoonWorld.GarageOffers) if (o.vehicle == vehicle) return Il2CppSystem.Decimal.ToDouble(o.price); }
+            catch (System.Exception caught) { Quiet.Note(caught); }
             return -1;
         }
 
         public static string List(MoonWorld w)
         {
-            var sb = new StringBuilder("{\"ok\":true,\"owned\":[");
-            int n = 0;
+            var o = new JsonOut().Obj().Bool("ok", true).Arr("owned");
             foreach (var kv in w.ownedVehicles)
             {
-                var v = kv.Value; if (n++ > 0) sb.Append(',');
-                bool spawned = false; try { spawned = w.garageVehicles.ContainsKey(kv.Key); } catch { }
-                sb.Append("{\"storage\":").Append(J.S(kv.Key)).Append(",\"owner\":").Append(J.S(v.owner)).Append(",\"ownerName\":").Append(J.S(v.ownerName))
-                  .Append(",\"garage\":").Append(v.garage).Append(",\"vehicle\":").Append(v.vehicle).Append(",\"inWorld\":").Append(v.inWorld ? "true" : "false")
-                  .Append(",\"spawned\":").Append(spawned ? "true" : "false").Append(",\"price\":").Append(J.F(PriceOf(w, v.vehicle))).Append('}');
+                var v = kv.Value;
+                bool spawned = false; try { spawned = w.garageVehicles.ContainsKey(kv.Key); } catch (System.Exception caught) { Quiet.Note(caught); }
+                o.Obj().Str("storage", kv.Key).Str("owner", v.owner).Str("ownerName", v.ownerName).Num("garage", v.garage).Num("vehicle", v.vehicle)
+                 .Bool("inWorld", v.inWorld).Bool("spawned", spawned).Num("price", PriceOf(v.vehicle)).End();
             }
-            sb.Append("],\"offers\":[");
-            int k = 0;
-            try { foreach (var o in MoonWorld.GarageOffers) { if (k++ > 0) sb.Append(','); sb.Append("{\"vehicle\":").Append(o.vehicle).Append(",\"price\":").Append(J.F(Il2CppSystem.Decimal.ToDouble(o.price))).Append(",\"summary\":").Append(J.S(o.summary)).Append('}'); } } catch { }
-            double money = 0; try { money = Il2CppSystem.Decimal.ToDouble(w.wallets.Balance); } catch { }
-            return sb.Append("],\"money\":").Append(J.F(money)).Append(",\"revision\":").Append(w.OwnedVehiclesRevision).Append('}').ToString();
+            // the shop's offers, read whole before any is written (a failure leaves no half entry)
+            var offers = new System.Collections.Generic.List<(int vehicle, double price, string summary)>();
+            try { foreach (var g in MoonWorld.GarageOffers) offers.Add((g.vehicle, Il2CppSystem.Decimal.ToDouble(g.price),
+                g.summary)); } catch (System.Exception caught) { Quiet.Note(caught); }
+            o.End().Arr("offers");
+            foreach (var g in offers) o.Obj().Num("vehicle", g.vehicle).Num("price", g.price).Str("summary", g.summary).End();
+            double money = 0; try { money = Il2CppSystem.Decimal.ToDouble(w.wallets.Balance); } catch (System.Exception caught) { Quiet.Note(caught); }
+            return o.End().Num("money", money).Num("revision", w.OwnedVehiclesRevision);
         }
 
         public static string Remove(MoonWorld w, string storage, bool refund)
         {
-            if (string.IsNullOrEmpty(storage) || !w.ownedVehicles.ContainsKey(storage)) return "{\"ok\":false,\"reason\":\"no owned vehicle with that storage id\"}";
-            var v = w.ownedVehicles.get_Item(storage); double price = PriceOf(w, v.vehicle);
+            if (string.IsNullOrEmpty(storage) || !w.ownedVehicles.ContainsKey(storage)) return Api.Result(false, "no owned vehicle with that storage id");
+            var v = w.ownedVehicles.get_Item(storage); double price = PriceOf(v.vehicle);
             double before = Il2CppSystem.Decimal.ToDouble(w.wallets.Balance);
             bool despawned = false;
             try
@@ -56,15 +56,16 @@ namespace LunarLink
             }
             catch (Exception e) { Plugin.L.LogWarning("vehicle despawn: " + e.Message); }
             w.ownedVehicles.Remove(storage);
-            try { w.OwnedVehiclesRevision = w.OwnedVehiclesRevision + 1; } catch { }
-            try { w.GarageChanged?.Invoke(v.garage); } catch { }
+            try { w.OwnedVehiclesRevision = w.OwnedVehiclesRevision + 1; } catch (System.Exception caught) { Quiet.Note(caught); }
+            try { w.GarageChanged?.Invoke(v.garage); } catch (System.Exception caught) { Quiet.Note(caught); }
             if (refund && price > 0)
             {
                 var me = SteamUser.GetSteamID().m_SteamID.ToString();
                 w.wallets.set_Item(me, new Il2CppSystem.Decimal(Il2CppSystem.Decimal.ToDouble(w.wallets.Balance) + price));
             }
             double after = Il2CppSystem.Decimal.ToDouble(w.wallets.Balance);
-            return "{\"ok\":true,\"despawned\":" + (despawned ? "true" : "false") + ",\"price\":" + J.F(price) + ",\"moneyBefore\":" + J.F(before) + ",\"moneyAfter\":" + J.F(after) + ",\"owner\":" + J.S(v.owner) + "}";
+            return new JsonOut().Obj().Bool("ok", true).Bool("despawned", despawned).Num("price", price).Num("moneyBefore",
+                before).Num("moneyAfter", after).Str("owner", v.owner);
         }
     }
 }

@@ -19,7 +19,7 @@ LunarLink installed, the same DLL reloads in place, and turning it off unloads i
    ./build.sh --hot <YourName>      # build samples/<YourName>, copy it into BepInEx/hot/ and reload it
    ```
 
-   A DLL new to `BepInEx/hot/` starts off. Turn it on once with F9 (HOT PLUGINS tab, **Enable**) or
+   A DLL new to `BepInEx/hot/` starts off. Turn it on once with F9 (Hot Mods tab, open its row, **Enable**) or
    `POST /hot/enable?name=<YourName>`; it then stays on across restarts.
 4. Change, `./build.sh --hot <YourName>` again, and the new code runs. `GET /hot/list` (or F9) shows its state, build
    time and any error.
@@ -60,7 +60,7 @@ The steps:
 3. **Write `Stop()`** by reading `Start()` from the bottom up: every patch, subscription, object and thread it made gets
    undone. This is the whole job; the [rules](#the-rules) list what's easy to miss.
 4. **Build it into `BepInEx/hot/`**, turn it on (F9 or `POST /hot/enable?name=`), and take the normal copy out of
-   `BepInEx/plugins/` for now (F9's BEPINEX PLUGINS tab, then restart once).
+   `BepInEx/plugins/` for now (F9's Mods tab, then restart once).
 5. **Reload it ten times** (`POST /hot/reload?name=`) and check `GET /hot/list?gc=1`: no `leftovers`, `oldCopiesAlive`
    0 or 1, and the plugin still behaves. If it doesn't, `Stop()` missed something.
 
@@ -148,16 +148,16 @@ Build it once more and give players the same DLL, in `BepInEx/plugins/<YourName>
 `Main` and drives it every frame; LunarLink isn't needed.
 
 Publish your releases somewhere public (GitHub releases, or any HTTPS host) and answer `UpdateFeed()` with where they
-are: then players with LunarLink get them from F9's UPDATES tab, without unzipping anything (see
+are: then players with LunarLink get them from F9's Updates tab, without unzipping anything (see
 [Letting it update itself](#letting-it-update-itself)).
 
 On your own machine, never have it in both folders: BepInEx would load the `plugins/` copy at start, and LunarLink
-refuses a hot copy of a plugin BepInEx already loaded (it says which to turn off). F9's BEPINEX PLUGINS tab turns the
+refuses a hot copy of a plugin BepInEx already loaded (it says which to turn off). F9's Mods tab turns the
 `plugins/` copy off for the next start.
 
 ## Letting it update itself
 
-LunarLink can update your plugin from the game, the same way it updates itself: F9's UPDATES tab shows a row for it,
+LunarLink can update your plugin from the game, the same way it updates itself: F9's Updates tab shows a row for it,
 and **Update** installs the newer version. Running hot, it reloads in place: **no restart, however often it's
 updated**. (Only LunarLink's own core ever needs a restart; a plugin installed the normal way in `BepInEx/plugins/`
 does too, since BepInEx can't unload it.)
@@ -206,9 +206,8 @@ For a plugin split into **modules** (several DLLs that each reload on their own)
 
 **What LunarLink checks, and what it won't do:**
 
-- It only looks when the player presses **Check for updates** (or `POST /update/check`), or once at game start if they
-  ticked that, and installs only when they
-  press **Update**. The row shows where the update comes from.
+- It only looks when the player presses **Check** (or `POST /update/check`), or once at game start if they turned
+  that on, and installs only when they press **Update**. The row shows where the update comes from.
 - The version is compared with yours: your `[BepInPlugin]` version (the one in `HotHost`), or the assembly's.
 - Every download is HTTPS and must match its SHA-256, or nothing is installed.
 - It installs **only your plugin's own DLLs**: your DLL's name, or names starting with `YourPlugin.` (from the zip,

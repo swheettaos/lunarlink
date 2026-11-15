@@ -1,5 +1,4 @@
 using System;
-using UnityEngine;
 
 namespace LunarLink
 {
@@ -12,10 +11,12 @@ namespace LunarLink
             ("Internal", "Main Thread", "main thread (whole frame)"), ("Internal", "PlayerLoop", "player loop"),
             ("Scripts", "Update.ScriptRunBehaviourUpdate", "scripts: Update"), ("Scripts", "PreLateUpdate.ScriptRunBehaviourLateUpdate", "scripts: LateUpdate"),
             ("Scripts", "FixedUpdate.ScriptRunBehaviourFixedUpdate", "scripts: FixedUpdate"), ("Physics", "FixedUpdate.PhysicsFixedUpdate", "physics"),
-            ("Animation", "PreLateUpdate.DirectorUpdateAnimationBegin", "animation begin"), ("Animation", "PreLateUpdate.DirectorUpdateAnimationEnd", "animation end"),
+            ("Animation", "PreLateUpdate.DirectorUpdateAnimationBegin", "animation begin"),
+                ("Animation", "PreLateUpdate.DirectorUpdateAnimationEnd", "animation end"),
             ("Render", "PostLateUpdate.FinishFrameRendering", "rendering (main thread)"), ("Render", "Gfx.WaitForPresentOnGfxThread", "waiting on the GPU"),
             ("Internal", "Gfx.WaitForGfxCommandsFromMainThread", "render thread waiting on main"),
-            ("Render", "Batches Count", "#batches"), ("Render", "SetPass Calls Count", "#setpass calls"), ("Render", "Draw Calls Count", "#draw calls"), ("Render", "Vertices Count", "#vertices"),
+            ("Render", "Batches Count", "#batches"), ("Render", "SetPass Calls Count", "#setpass calls"),
+                ("Render", "Draw Calls Count", "#draw calls"), ("Render", "Vertices Count", "#vertices"),
         };
         static Unity.Profiling.ProfilerRecorder[] rec;
         static Unity.Profiling.ProfilerCategory Cat(string n) => n switch
@@ -32,7 +33,8 @@ namespace LunarLink
             for (int i = 0; i < Markers.Length; i++)
             {
                 Pump.Trace("engine timers: starting " + Markers[i].name);
-                try { rec[i] = Unity.Profiling.ProfilerRecorder.StartNew(Cat(Markers[i].cat), Markers[i].name, 1, Unity.Profiling.ProfilerRecorderOptions.Default); }
+                try { rec[i] = Unity.Profiling.ProfilerRecorder.StartNew(Cat(Markers[i].cat), Markers[i].name, 1,
+                    Unity.Profiling.ProfilerRecorderOptions.Default); }
                 catch (Exception e) { Plugin.L.LogWarning("perf marker " + Markers[i].name + ": " + e.Message); }
                 Pump.Trace("engine timers: started " + Markers[i].name);
             }
@@ -45,7 +47,7 @@ namespace LunarLink
         public static void Stop()
         {
             if (rec == null) return;
-            for (int i = 0; i < rec.Length; i++) try { rec[i].Dispose(); } catch { }
+            for (int i = 0; i < rec.Length; i++) try { rec[i].Dispose(); } catch (System.Exception caught) { Quiet.Note(caught); }
             rec = null; sum = null; samples = 0;
             Pump.Journal("engine timers: stopped");
         }
@@ -55,22 +57,26 @@ namespace LunarLink
         {
             if (rec == null) return;
             if (sum == null) sum = new double[Markers.Length];
-            for (int i = 0; i < Markers.Length; i++) try { if (rec[i].Valid) sum[i] += rec[i].LastValue; } catch { }
+            for (int i = 0; i < Markers.Length; i++) try { if (rec[i].Valid) sum[i] += rec[i].LastValue; }
+            catch (System.Exception caught) { Quiet.Note(caught); }
             samples++;
         }
         public static string Json()
         {
-            if (rec == null) return "{}";
+            var o = new JsonOut().Obj();
+            if (rec == null) return o;
             Pump.Trace("engine timers: reading");
-            var sb = new System.Text.StringBuilder("{\"frames\":").Append(samples);
+            o.Num("frames", samples);
             for (int i = 0; i < Markers.Length; i++)
             {
-                string v = "null";
-                if (sum != null && samples > 0) { double x = sum[i] / samples; v = Markers[i].label.StartsWith("#") ? ((long)x).ToString() : J.F((float)(x / 1e6)); }
-                sb.Append(',').Append(J.S(Markers[i].label)).Append(':').Append(v);
+                if (sum == null || samples == 0) { o.Null(Markers[i].label); continue; }
+                double x = sum[i] / samples;
+                // "#" counts, the rest ms
+                if (Markers[i].label.StartsWith("#")) o.Num(Markers[i].label, (long)x);
+                else o.Num(Markers[i].label, (float)(x / 1e6));
             }
             if (sum != null) Array.Clear(sum, 0, sum.Length); samples = 0;
-            return sb.Append('}').ToString();
+            return o;
         }
 
     }

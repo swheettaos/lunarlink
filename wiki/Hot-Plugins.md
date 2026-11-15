@@ -164,7 +164,7 @@ correctly; it only costs that copy's memory until the game restarts.
 ## Updating them
 
 A hot plugin that says where its builds are (`public string UpdateFeed()`: `github:owner/repo` or any public HTTPS
-address of an update file) gets a row on F9's UPDATES tab: **Update** downloads the new build, checks its SHA-256,
+address of an update file) gets a row on F9's Updates tab: **Update** downloads the new build, checks its SHA-256,
 puts it in `BepInEx/hot/` and reloads it, with no restart. See [[Updates]].
 
 ## Safety

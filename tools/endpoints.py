@@ -13,9 +13,12 @@ AREAS = ["World", "Base", "Build", "Player", "Game", "Host", "Dev", "Help"]
 
 def routes(text):
     out = []
-    for m in re.finditer(r'Api\.(Get|Post|Ask)\("([^"]+)",\s*"((?:[^"\\]|\\.)*)"', text):
+    # the help may be one literal or several joined with + across lines ("first part " +\n "the rest")
+    lit = r'"(?:[^"\\]|\\.)*"'
+    for m in re.finditer(r'Api\.(Get|Post|Ask)\(\s*"([^"]+)",\s*(' + lit + r'(?:\s*\+\s*' + lit + r')*)', text):
         meth = "GET" if m.group(1) == "Get" else "POST"
-        out.append({"method": meth, "path": m.group(2), "help": m.group(3).replace('\\"', '"') + (" (changes nothing)" if m.group(1) == "Ask" else ""),
+        help = "".join(re.findall(r'"((?:[^"\\]|\\.)*)"', m.group(3))).replace('\\"', '"')
+        out.append({"method": meth, "path": m.group(2), "help": help + (" (changes nothing)" if m.group(1) == "Ask" else ""),
                     "write": m.group(1) == "Post"})
     return out
 
@@ -29,7 +32,7 @@ def details():
 def groups():
     """Every group of LunarLink's own endpoints, in order, each endpoint with its details ("d") when it has some."""
     gs = [{"group": "LunarLink", "from": "core", "about": "The core: status and hot plugins.",
-           "endpoints": [e for f in ("Pump.cs", "Hot.cs") for e in routes(read("src", "LunarLink", f))]}]
+           "endpoints": [e for f in ("Pump.cs", "Hot.Http.cs") for e in routes(read("src", "LunarLink", f))]}]
     for area in AREAS:
         t = read("src", "LunarLink.Api", area + "Area.cs")
         gs.append({"group": area, "from": "LunarLink.Api", "about": blurb(t), "endpoints": routes(t)})

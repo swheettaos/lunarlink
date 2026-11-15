@@ -39,10 +39,11 @@ deploy key on it, the key's private half as the secret `REFS_DEPLOY_KEY`, and th
 
 | Folder | What |
 |---|---|
-| `src/LunarLink` | The core: `Server.cs`, `Pump.cs`, `Api.cs` (route table), `Hot.cs` (loader), `Bridges.cs`, `BepPlugins.cs`, `PluginHttp.cs` |
+| `src/LunarLink` | The core: `Server.cs`, `Pump.cs`, `Api.cs` (route table), `Json.cs` (the JSON writer every answer uses), `Hot*.cs` (the loader: `Hot.Folder`, `.Actions`, `.Load`, `.Http`), `Support*.cs` (the support file), `Quiet.cs` (errors ignored on purpose, logged once and counted), `Bridges.cs`, `PluginHttp.cs` |
 | `src/LunarLink.Api` | The endpoints, one file per area (`WorldArea.cs`, `BuildArea.cs`, ...) and their helpers |
 | `src/LunarLink.Perf` | Measuring and the fps fixes |
-| `src/LunarLink.Window` | The F9 window |
+| `src/LunarLink.Window` | The F9 window (`Window*.cs`: lifecycle, pane, parts, tabs, settings, restart) and normal BepInEx plugins (`BepPlugins.cs`, `PluginSettings.cs`) |
+| `src/LunarLink.Update`, `src/LunarLink.Wrap` | The updater (`Updater*.cs`: checking, installing) and the wrapper for normal plugins |
 | `samples/HelloHot` | The example hot plugin |
 | `docs/` | The GitHub Pages site: the API reference and the plugin guide |
 | `docs/endpoints.toml` | Every endpoint's details: parameters, examples, answers |

@@ -1,6 +1,4 @@
-using System;
 using System.Globalization;
-using System.Text;
 using Il2CppInterop.Runtime;
 using MoonCleaners;
 using UnityEngine;
@@ -11,22 +9,28 @@ namespace LunarLink
     // the sun, the moon's cleaned share and where dust is left.
     static class WorldArea
     {
-        internal static void Start(string state)
+        internal static void Start()
         {
-            Api.Get("/structures", "Every structure: id, kind, pos, rotation, support. ?x=&y=&z=&r= within r m of a point; ?kind=1,2; ?since=<id> only newer", r => Structures(Api.World, r));
+            Api.Get("/structures",
+                "Every structure: id, kind, pos, rotation, support. ?x=&y=&z=&r= within r m of a point; ?kind=1,2; ?since=<id> " +
+                    "only newer", r => Structures(Api.World, r));
             Api.Get("/belts", "Every belt piece: id, start/end points and directions, length", r => Belts(Api.World));
             Api.Get("/stations", "The stations: index, name, pos, intake sockets", r => Stations(Api.World));
             Api.Get("/stations/shape", "?index= : every collider of a station as the 8 corners of its box", r => StationShape(Api.World, r));
-            Api.Get("/stations/footprint", "?index=&step= : where a station's building really is (rays down onto its colliders)", r => StationFootprint(Api.World, r));
+            Api.Get("/stations/footprint", "?index=&step= : where a station's building really is (rays down onto its colliders)",
+                r => StationFootprint(Api.World, r));
             Api.Get("/terrain", "?x=&y=&z=&half=&step= : ground heights on a grid round a point", r => Terrain(Api.World, r));
             Api.Get("/canisters", "?x=&y=&z=&radius= : capsules near a point: cargo, kg, riding, carried; and the totals", r => Canisters(Api.World, r));
-            Api.Get("/kinds", "Structure kinds standing in the world; ?all=1 every kind the game defines: name, prefab, price, footprint, height, ports", r => Kinds(Api.World, r.Query["all"] == "1"));
+            Api.Get("/kinds", "Structure kinds standing in the world; ?all=1 every kind the game defines: name, prefab, price, " +
+                "footprint, height, ports", r => Kinds(Api.World, r.Query["all"] == "1"));
             Api.Get("/kit", "The conveyor kit's limits: length, radius, slope, height, price per metre", r => Kit());
             Api.Get("/specs", "Machine recipes: batch sizes, cycle times, slots, belt speed", r => Specs());
             Api.Get("/sun", "The sun: direction, height, lunar day length, clock", r => Sun());
             Api.Get("/moon", "The cleaned share of the moon, as the map screen shows it", r => MoonStat());
             Api.Get("/dust/regions", "Every region not complete: index, centre, dust left, dust it started with", r => DustMap.Regions(Api.World));
-            Api.Get("/dust/geometry", "Region centres and chunk-file centres, written to dust_geometry.json for offline save editing", r => DustMap.Geometry(Api.World));
+            Api.Get("/dust/geometry",
+                "Region centres and chunk-file centres, written to dust_geometry.json for offline save editing",
+                r => DustMap.Geometry(Api.World));
         }
 
 
@@ -36,36 +40,25 @@ namespace LunarLink
         static string Kinds(MoonWorld w, bool all)
         {
             var seen = new System.Collections.Generic.HashSet<int>();
-            if (all) { for (int k = 1; k <= 1024; k++) { try { if (w.BuildDefinition(k) != null) seen.Add(k); } catch { } } }
+            if (all) { for (int k = 1; k <= 1024; k++) { try { if (w.BuildDefinition(k) != null) seen.Add(k); }
+                catch (System.Exception caught) { Quiet.Note(caught); } } }
             else foreach (var kv in w.depots) seen.Add(kv.Value.kind);
-            var sb = new StringBuilder("[");
-            bool first = true;
+            var o = new JsonOut().Arr();
             foreach (var k in seen)
             {
                 var d = w.BuildDefinition(k);
-                if (!first) sb.Append(','); first = false;
-                sb.Append("{\"kind\":").Append(k);
-                if (d == null) { sb.Append(",\"name\":null}"); continue; }
-                string prefab = null; try { prefab = d.prefab != null ? d.prefab.name : null; } catch { }
-                sb.Append(",\"name\":").Append(J.S(d.displayName)).Append(",\"prefab\":").Append(J.S(prefab))
-                  .Append(",\"price\":").Append(d.priceDollars)
-                  .Append(",\"scale\":").Append(J.F(d.scale))
-                  .Append(",\"halfFootprint\":[").Append(J.F(d.halfFootprint.x)).Append(',').Append(J.F(d.halfFootprint.y)).Append(']')
-                  .Append(",\"height\":").Append(J.F(d.height))
-                  .Append(",\"floorOffset\":").Append(J.F(d.floorOffset))
-                  .Append(",\"reach\":").Append(J.F(d.reach)).Append(",\"groundTolerance\":").Append(J.F(d.groundTolerance))
-                  .Append(",\"ports\":[");
+                o.Obj().Num("kind", k);
+                if (d == null) { o.Null("name").End(); continue; }
+                string prefab = null; try { prefab = d.prefab != null ? d.prefab.name : null; } catch (System.Exception caught) { Quiet.Note(caught); }
+                o.Str("name", d.displayName).Str("prefab", prefab).Num("price", d.priceDollars).Num("scale", d.scale)
+                 .Nums("halfFootprint", d.halfFootprint.x, d.halfFootprint.y).Num("height", d.height).Num("floorOffset", d.floorOffset)
+                 .Num("reach", d.reach).Num("groundTolerance", d.groundTolerance).Arr("ports");
                 var ports = d.conveyorPorts;
                 for (int i = 0; ports != null && i < ports.Length; i++)
-                {
-                    var p = ports[i];
-                    if (i > 0) sb.Append(',');
-                    sb.Append("{\"name\":").Append(J.S(p.name)).Append(",\"pos\":").Append(J.V(p.position))
-                      .Append(",\"dir\":").Append(J.V(p.direction)).Append(",\"output\":").Append(p.output ? "true" : "false").Append('}');
-                }
-                sb.Append("]}");
+                    o.Obj().Str("name", ports[i].name).Vec("pos", ports[i].position).Vec("dir", ports[i].direction).Bool("output", ports[i].output).End();
+                o.End().End();
             }
-            return sb.Append(']').ToString();
+            return o.ToString();
         }
 
         // ?x=&y=&z=&r= : only within r metres of that world point; ?kind=1,2 : only those kinds; ?since=<id> : only pieces
@@ -75,61 +68,46 @@ namespace LunarLink
             int since = Api.Qi(req, "since", -1); float r = Api.Qf(req, "r", -1f);
             var at = new Vector3(Api.Qf(req, "x", 0), Api.Qf(req, "y", 0), Api.Qf(req, "z", 0));
             var kinds = new System.Collections.Generic.HashSet<int>(Api.Ids(req, "kind"));
-            var sb = new StringBuilder("[");
-            bool first = true;
+            var o = new JsonOut().Arr();
             foreach (var kv in w.depots)
             {
                 var d = kv.Value;
                 if (since >= 0 && d.id <= since) continue;
                 if (kinds.Count > 0 && !kinds.Contains(d.kind)) continue;
                 if (r >= 0 && (new Vector3(d.x, d.y, d.z) - at).sqrMagnitude > r * r) continue;
-                if (!first) sb.Append(','); first = false;
-                sb.Append("{\"id\":").Append(d.id).Append(",\"kind\":").Append(d.kind)
-                  .Append(",\"pos\":[").Append(J.F(d.x)).Append(',').Append(J.F(d.y)).Append(',').Append(J.F(d.z)).Append(']')
-                  .Append(",\"yaw\":").Append(J.F(d.yaw)).Append(",\"placedPose\":").Append(d.placedPose ? "true" : "false")
-                  .Append(",\"q\":[").Append(J.F(d.qx)).Append(',').Append(J.F(d.qy)).Append(',').Append(J.F(d.qz)).Append(',').Append(J.F(d.qw)).Append(']')
-                  .Append(",\"support\":").Append(d.support).Append(",\"stored\":").Append(J.F(d.stored)).Append('}');
+                o.Obj().Num("id", d.id).Num("kind", d.kind).Nums("pos", d.x, d.y, d.z).Num("yaw", d.yaw).Bool("placedPose", d.placedPose)
+                 .Nums("q", d.qx, d.qy, d.qz, d.qw).Num("support", d.support).Num("stored", d.stored).End();
             }
-            return sb.Append(']').ToString();
+            return o.ToString();
         }
 
         static string Belts(MoonWorld w)
         {
-            var sb = new StringBuilder("[");
-            bool first = true;
+            var o = new JsonOut().Arr();
             foreach (var kv in w.conveyors)
             {
                 var b = kv.Value;
-                if (!first) sb.Append(','); first = false;
-                sb.Append("{\"id\":").Append(b.id).Append(",\"start\":").Append(J.V(b.start)).Append(",\"startDir\":").Append(J.V(b.startDirection))
-                  .Append(",\"end\":").Append(J.V(b.end)).Append(",\"endDir\":").Append(J.V(b.endDirection));
+                o.Obj().Num("id", b.id).Vec("start", b.start).Vec("startDir", b.startDirection).Vec("end", b.end).Vec("endDir", b.endDirection);
                 var path = w.BeltPathOf(b.id);
-                if (path != null) sb.Append(",\"length\":").Append(J.F(path.Length));
-                sb.Append('}');
+                if (path != null) o.Num("length", path.Length);
+                o.End();
             }
-            return sb.Append(']').ToString();
+            return o.ToString();
         }
 
         static string Stations(MoonWorld w)
         {
-            var sb = new StringBuilder("[");
+            var o = new JsonOut().Arr();
             int i = 0;
             foreach (var s in w.stations)
             {
-                if (i > 0) sb.Append(',');
-                sb.Append("{\"index\":").Append(i).Append(",\"name\":").Append(J.S(s.gameObject.name))
-                  .Append(",\"pos\":").Append(J.V(s.transform.position)).Append(",\"sockets\":[");
+                o.Obj().Num("index", i++).Str("name", s.gameObject.name).Vec("pos", s.transform.position).Arr("sockets");
                 var socks = s.intakeSockets;
                 for (int k = 0; socks != null && k < socks.Length; k++)
-                {
-                    var t = socks[k];
-                    if (k > 0) sb.Append(',');
-                    sb.Append("{\"name\":").Append(J.S(t.name)).Append(",\"pos\":").Append(J.V(t.position)).Append(",\"fwd\":").Append(J.V(t.forward)).Append('}');
-                }
-                sb.Append("]}");
-                i++;
+                    o.Obj().Str("name", socks[k].name).Vec("pos", socks[k].position).Vec("fwd", socks[k].forward).End();
+                o.End().End();
             }
-            return sb.Append(']').ToString();
+            return o.ToString();
         }
 
         // /stations/shape?index= : every collider of a station building, as the 8 corners of its own box (mesh or box
@@ -137,7 +115,8 @@ namespace LunarLink
         // had only a hand-set box (units clipped the building, 2026-11-04). Read only.
         static string StationShape(MoonWorld w, Req req)
         {
-            int want = Api.Qi(req, "index", -1); int i = 0; var sb = new StringBuilder("["); int n = 0;
+            int want = Api.Qi(req, "index", -1); int i = 0;
+            var o = new JsonOut().Arr();
             foreach (var s in w.stations)
             {
                 if (want >= 0 && i != want) { i++; continue; }
@@ -145,6 +124,7 @@ namespace LunarLink
                 for (int k = 0; cols != null && k < cols.Length; k++)
                 {
                     var c = cols[k]; if (c == null) continue;
+                    var corners = new System.Collections.Generic.List<Vector3>();
                     try
                     {
                         Vector3 lc, ls; bool local = true;
@@ -152,24 +132,21 @@ namespace LunarLink
                         if (bc != null) { lc = bc.center; ls = bc.size; }
                         else if (mc != null && mc.sharedMesh != null) { var b = mc.sharedMesh.bounds; lc = b.center; ls = b.size; }
                         else { var b = c.bounds; lc = b.center; ls = b.size; local = false; }
-                        if (n++ > 0) sb.Append(",");
-                        sb.Append("{\"station\":").Append(i).Append(",\"name\":").Append(J.S(c.gameObject.name))
-                          .Append(",\"trigger\":").Append(c.isTrigger ? "true" : "false").Append(",\"enabled\":").Append(c.enabled && c.gameObject.activeInHierarchy ? "true" : "false")
-                          .Append(",\"corners\":[");
-                        int m = 0;
                         for (int a = -1; a <= 1; a += 2) for (int bb = -1; bb <= 1; bb += 2) for (int cc = -1; cc <= 1; cc += 2)
                         {
                             var q = lc + Vector3.Scale(ls * 0.5f, new Vector3(a, bb, cc));
-                            var wq = local ? c.transform.TransformPoint(q) : q;
-                            if (m++ > 0) sb.Append(","); sb.Append(J.V(wq));
+                            corners.Add(local ? c.transform.TransformPoint(q) : q);
                         }
-                        sb.Append("]}");
                     }
-                    catch { }
+                    catch (System.Exception caught) { Quiet.Note(caught); continue; }      // read first, written whole: a failure leaves no half entry
+                    o.Obj().Num("station", i).Str("name", c.gameObject.name).Bool("trigger", c.isTrigger).Bool("enabled",
+                        c.enabled && c.gameObject.activeInHierarchy).Arr("corners");
+                    foreach (var q in corners) o.Vec(q);
+                    o.End().End();
                 }
                 i++;
             }
-            return sb.Append("]").ToString();
+            return o.ToString();
         }
 
         // /stations/footprint?index=&step=1 : where the station building really is - a ray straight down onto each of
@@ -179,7 +156,7 @@ namespace LunarLink
         static string StationFootprint(MoonWorld w, Req req)
         {
             int want = Api.Qi(req, "index", -1); float step = Mathf.Clamp(Api.Qf(req, "step", 1f), 0.5f, 4f);
-            int i = 0; var sb = new StringBuilder("["); int n = 0;
+            int i = 0, n = 0; var o = new JsonOut().Arr();
             foreach (var s in w.stations)
             {
                 if (want >= 0 && i != want) { i++; continue; }
@@ -200,33 +177,27 @@ namespace LunarLink
                         float r = half.magnitude; float top = r + 2f;
                         for (float x = -r; x <= r; x += step)
                             for (float z = -r; z <= r; z += step)
-                            {
-                                var o = wc + sx * x + sz * z + up * top;
-                                RaycastHit hit;
-                                if (c.Raycast(new Ray(o, -up), out hit, top * 2f))
-                                {
-                                    if (n++ > 0) sb.Append(",");
-                                    sb.Append("[").Append(J.F(hit.point.x)).Append(",").Append(J.F(hit.point.y)).Append(",").Append(J.F(hit.point.z)).Append("]");
-                                }
-                            }
+                                if (c.Raycast(new Ray(wc + sx * x + sz * z + up * top, -up), out RaycastHit hit, top * 2f)) { n++; o.Vec(hit.point); }
                     }
-                    catch { }
+                    catch (System.Exception caught) { Quiet.Note(caught); }
                 }
                 i++;
             }
-            return sb.Append("]").ToString();
+            return o.ToString();
         }
 
         // /moon : the cleaned share of the moon as the game shows it (the map screen's moon-percent label) - read only
         static string MoonStat()
         {
-            var sb = new StringBuilder("{\"labels\":["); int n = 0;
+            var o = new JsonOut().Obj().Arr("labels");
             var objs = UnityEngine.Object.FindObjectsOfType(Il2CppType.From(typeof(MoonMapScreen)), true);
             for (int i = 0; objs != null && i < objs.Length; i++)
             {
-                try { var t = objs[i].Cast<MoonMapScreen>().moonPercent; if (t == null) continue; if (n++ > 0) sb.Append(","); sb.Append(J.S(t.text)); } catch { }
+                string text = null;
+                try { text = objs[i].Cast<MoonMapScreen>().moonPercent?.text; } catch (System.Exception caught) { Quiet.Note(caught); }
+                if (text != null) o.Str(text);
             }
-            return sb.Append("]}").ToString();
+            return o.ToString();
         }
 
         // Loose capsules (dust/sand/stone) lying on the ground or riding belts, within radius of x,y,z.
@@ -234,75 +205,57 @@ namespace LunarLink
         {
             var c = new Vector3(Api.Qf(req, "x", 0), Api.Qf(req, "y", 0), Api.Qf(req, "z", 0));
             float r = Api.Qf(req, "radius", 200);
-            var sb = new StringBuilder("{\"total\":").Append(w.DroppedCanisterCount).Append(",\"riding\":").Append(w.RidingCanisterCount).Append(",\"near\":[");
-            bool first = true;
+            var o = new JsonOut().Obj().Num("total", w.DroppedCanisterCount).Num("riding", w.RidingCanisterCount).Arr("near");
             foreach (var kv in w.canisters)
             {
                 var k = kv.Value;
                 if ((k.position - c).magnitude > r) continue;
-                if (!first) sb.Append(','); first = false;
-                sb.Append("{\"id\":").Append(k.id).Append(",\"kg\":").Append(J.F(k.kilograms)).Append(",\"cargo\":").Append(J.S(k.cargo.ToString()))
-                  .Append(",\"pos\":").Append(J.V(k.position))
-                  .Append(",\"riding\":").Append(w.IsCanisterRiding(k.id) ? "true" : "false")
-                  .Append(",\"carried\":").Append(w.IsCanisterCarried(k.id) ? "true" : "false").Append('}');
+                o.Obj().Num("id", k.id).Num("kg", k.kilograms).Str("cargo", k.cargo.ToString()).Vec("pos", k.position)
+                 .Bool("riding", w.IsCanisterRiding(k.id)).Bool("carried", w.IsCanisterCarried(k.id)).End();
             }
-            return sb.Append("]}").ToString();
+            return o.ToString();
         }
 
         static string Kit()
         {
             var k = MoonConveyorKit.Load();
-            if (k == null) return "{\"error\":\"no conveyor kit\"}";
-            return "{\"minLength\":" + J.F(k.minLength) + ",\"maxLength\":" + J.F(k.maxLength) + ",\"minRadius\":" + J.F(k.minRadius)
-                + ",\"maxSlope\":" + J.F(k.maxSlope) + ",\"minHeight\":" + J.F(k.minHeight) + ",\"maxHeight\":" + J.F(k.maxHeight)
-                + ",\"deckHeight\":" + J.F(k.deckHeight) + ",\"pricePerMetre\":" + J.F(k.pricePerMetre) + ",\"builder\":" + (Api.Player != null ? "true" : "false") + "}";
+            if (k == null) return new JsonOut().Obj().Str("error", "no conveyor kit").ToString();
+            return new JsonOut().Obj().Num("minLength", k.minLength).Num("maxLength", k.maxLength).Num("minRadius", k.minRadius)
+                .Num("maxSlope", k.maxSlope).Num("minHeight", k.minHeight).Num("maxHeight", k.maxHeight).Num("deckHeight", k.deckHeight)
+                .Num("pricePerMetre", k.pricePerMetre).Bool("builder", Api.Player != null).ToString();
         }
-
-
-
-
 
         // Day/night clock: lunar day length, clock speed and the current sun direction.
         static string Sun()
         {
             var found = UnityEngine.Object.FindObjectsOfType(Il2CppType.Of<MoonSolarSystem>());
-            if (found.Length == 0) return "{\"error\":\"no solar system\"}";
+            if (found.Length == 0) return new JsonOut().Obj().Str("error", "no solar system").ToString();
             var s = found[0].Cast<MoonSolarSystem>();
             var dir = s.sunlight != null ? -s.sunlight.transform.forward : Vector3.zero;
-            return "{\"time\":" + J.F(Time.time) + ",\"lunarDaySeconds\":" + J.F(s.lunarDaySeconds)
-                + ",\"clockSpeed\":" + J.F(MoonSolarSystem.clockSpeed) + ",\"clockOffset\":" + J.F(MoonSolarSystem.clockOffset)
-                + ",\"spinAxis\":" + J.V(MoonSolarSystem.SpinAxis) + ",\"skySun\":" + J.V(s.skySun)
-                + ",\"sunlightDir\":" + J.V(dir) + ",\"sunHeight\":" + J.F(s.SunHeight) + "}";
+            return new JsonOut().Obj().Num("time", Time.time).Num("lunarDaySeconds", s.lunarDaySeconds).Num("clockSpeed", MoonSolarSystem.clockSpeed)
+                .Num("clockOffset", MoonSolarSystem.clockOffset).Vec("spinAxis", MoonSolarSystem.SpinAxis).Vec("skySun", s.skySun)
+                .Vec("sunlightDir", dir).Num("sunHeight", s.SunHeight).ToString();
         }
 
         // Recipe definitions for the processing machines.
         static string Specs()
         {
-            var sb = new StringBuilder("{\"chamberBatchKg\":").Append(J.F(MoonWorld.ChamberBatchKg))
-                .Append(",\"pressDustPerBlockKg\":").Append(J.F(MoonWorld.PressDustPerBlockKg))
-                .Append(",\"pressSandPerBlockKg\":").Append(J.F(MoonWorld.PressSandPerBlockKg))
-                .Append(",\"stoneBlockKg\":").Append(J.F(MoonWorld.StoneBlockKg))
-                .Append(",\"chamberPartBatchSeconds\":").Append(J.F(MoonWorld.ChamberPartBatchSeconds))
-                .Append(",\"beltSpeed\":").Append(J.F(MoonWorld.BeltSpeed)).Append(",\"beltSpacing\":").Append(J.F(MoonWorld.BeltSpacing))
-                .Append(",\"machines\":[");
-            int[] kinds = { 96, 97 };
-            for (int i = 0; i < kinds.Length; i++)
+            var o = new JsonOut().Obj().Num("chamberBatchKg", MoonWorld.ChamberBatchKg).Num("pressDustPerBlockKg", MoonWorld.PressDustPerBlockKg)
+                .Num("pressSandPerBlockKg", MoonWorld.PressSandPerBlockKg).Num("stoneBlockKg", MoonWorld.StoneBlockKg)
+                .Num("chamberPartBatchSeconds", MoonWorld.ChamberPartBatchSeconds).Num("beltSpeed",
+                    MoonWorld.BeltSpeed).Num("beltSpacing", MoonWorld.BeltSpacing)
+                .Arr("machines");
+            foreach (var kind in new[] { 96, 97 })
             {
-                var s = MoonWorld.Processor(kinds[i]);
-                if (i > 0) sb.Append(',');
-                if (s == null) { sb.Append("null"); continue; }
-                sb.Append("{\"kind\":").Append(kinds[i]).Append(",\"name\":").Append(J.S(s.name)).Append(",\"product\":").Append(J.S(s.product))
-                  .Append(",\"runningKw\":").Append(J.F(s.runningKw)).Append(",\"cycleSeconds\":").Append(J.F(s.cycleSeconds))
-                  .Append(",\"output\":").Append(s.output).Append(",\"slots\":[");
+                var s = MoonWorld.Processor(kind);
+                if (s == null) { o.Null(null); continue; }
+                o.Obj().Num("kind", kind).Str("name", s.name).Str("product", s.product).Num("runningKw", s.runningKw).Num("cycleSeconds", s.cycleSeconds)
+                 .Num("output", s.output).Arr("slots");
                 for (int k = 0; s.slotNames != null && k < s.slotNames.Length; k++)
-                {
-                    if (k > 0) sb.Append(',');
-                    sb.Append("{\"name\":").Append(J.S(s.slotNames[k])).Append(",\"cargo\":").Append(J.S(s.slotCargo[k].ToString()))
-                      .Append(",\"capacity\":").Append(J.F(s.slotCapacity[k])).Append('}');
-                }
-                sb.Append("]}");
+                    o.Obj().Str("name", s.slotNames[k]).Str("cargo", s.slotCargo[k].ToString()).Num("capacity", s.slotCapacity[k]).End();
+                o.End().End();
             }
-            return sb.Append("]}").ToString();
+            return o.ToString();
         }
 
         // Real ground heights on a square grid around a world point, in the same east/north/up frame
@@ -318,18 +271,15 @@ namespace LunarLink
             east.Normalize();
             var north = Vector3.Cross(up, east);
             int n = (int)(2 * half / step) + 1;
-            var sb = new StringBuilder("{\"centre\":").Append(J.V(c)).Append(",\"half\":").Append(J.F(half))
-                .Append(",\"step\":").Append(J.F(step)).Append(",\"n\":").Append(n).Append(",\"h\":[");
+            var o = new JsonOut().Obj().Vec("centre", c).Num("half", half).Num("step", step).Num("n", n).Arr("h");
             var terrain = w.Terrain;
             for (int j = 0; j < n; j++)
                 for (int i = 0; i < n; i++)
                 {
                     var p = c + east * (-half + i * step) + north * (half - j * step);
-                    var s = terrain.SurfacePoint(p.normalized);
-                    if (i > 0 || j > 0) sb.Append(',');
-                    sb.Append(J.F(Vector3.Dot(s - c, up)));
+                    o.Num(Vector3.Dot(terrain.SurfacePoint(p.normalized) - c, up));
                 }
-            return sb.Append("]}").ToString();
+            return o.ToString();
         }
     }
 }

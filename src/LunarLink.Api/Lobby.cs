@@ -1,5 +1,4 @@
 using System;
-using System.Text;
 using MoonCleaners;
 using Steamworks;
 
@@ -17,11 +16,9 @@ namespace LunarLink
 
         public static string Data()
         {
-            var sb = new StringBuilder("{\"inLobby\":").Append(MoonSteamLobby.InLobby ? "true" : "false")
-                .Append(",\"isHost\":").Append(MoonSteamLobby.IsHost ? "true" : "false")
-                .Append(",\"crewName\":").Append(J.S(MoonSteamLobby.CrewName))
-                .Append(",\"privacy\":").Append(J.S(MoonSteamLobby.CurrentPrivacy.ToString()))
-                .Append(",\"lobbyId\":").Append(MoonSteamLobby.LobbyId).Append(",\"data\":{");
+            var o = new JsonOut().Obj().Bool("inLobby", MoonSteamLobby.InLobby).Bool("isHost", MoonSteamLobby.IsHost)
+                .Str("crewName", MoonSteamLobby.CrewName).Str("privacy", MoonSteamLobby.CurrentPrivacy.ToString())
+                .Raw("lobbyId", MoonSteamLobby.LobbyId.ToString()).Obj("data");
             if (MoonSteamLobby.InLobby)
             {
                 int n = SteamMatchmaking.GetLobbyDataCount(Id());
@@ -29,21 +26,20 @@ namespace LunarLink
                 {
                     string k, v;
                     if (!SteamMatchmaking.GetLobbyDataByIndex(Id(), i, out k, 256, out v, 8192)) continue;
-                    if (i > 0) sb.Append(',');
-                    sb.Append(J.S(k)).Append(':').Append(J.S(v));
+                    o.Str(k, v);
                 }
             }
-            return sb.Append("}}").ToString();
+            return o;
         }
 
         public static string Name(string text)
         {
-            if (!MoonSteamLobby.InLobby || !MoonSteamLobby.IsHost) return "{\"ok\":false,\"reason\":\"host a game first\"}";
-            text = (text ?? "").Trim(); if (text.Length == 0 || text.Length > 60) return "{\"ok\":false,\"reason\":\"name must be 1-60 characters\"}";
+            if (!MoonSteamLobby.InLobby || !MoonSteamLobby.IsHost) return Api.Result(false, "host a game first");
+            text = (text ?? "").Trim(); if (text.Length == 0 || text.Length > 60) return Api.Result(false, "name must be 1-60 characters");
             string old = MoonSteamLobby.CrewName ?? "";
             MoonSteamLobby.CrewName = text;
-            var changed = new StringBuilder("[");
-            int n = SteamMatchmaking.GetLobbyDataCount(Id()), c = 0;
+            var changed = new System.Collections.Generic.List<string>();
+            int n = SteamMatchmaking.GetLobbyDataCount(Id());
             for (int i = 0; i < n; i++)
             {
                 string k, v;
@@ -51,19 +47,20 @@ namespace LunarLink
                 if (old.Length > 0 && v == old)
                 {
                     SteamMatchmaking.SetLobbyData(Id(), k, text);
-                    if (c++ > 0) changed.Append(','); changed.Append(J.S(k));
+                    changed.Add(k);
                 }
             }
             try { MoonSteamLobby.RefreshLobby(); } catch (Exception e) { Plugin.L.LogWarning("lobby refresh: " + e.Message); }
-            return "{\"ok\":true,\"old\":" + J.S(old) + ",\"name\":" + J.S(MoonSteamLobby.CrewName) + ",\"keysChanged\":" + changed.Append(']') + "}";
+            var o = new JsonOut().Obj().Bool("ok", true).Str("old", old).Str("name", MoonSteamLobby.CrewName).Arr("keysChanged");
+            foreach (var k in changed) o.Str(k);
+            return o;
         }
 
         public static string Set(string key, string value)
         {
-            if (!MoonSteamLobby.InLobby || !MoonSteamLobby.IsHost) return "{\"ok\":false,\"reason\":\"host a game first\"}";
-            if (string.IsNullOrEmpty(key)) return "{\"ok\":false,\"reason\":\"key\"}";
-            bool ok = SteamMatchmaking.SetLobbyData(Id(), key, value ?? "");
-            return "{\"ok\":" + (ok ? "true" : "false") + "}";
+            if (!MoonSteamLobby.InLobby || !MoonSteamLobby.IsHost) return Api.Result(false, "host a game first");
+            if (string.IsNullOrEmpty(key)) return Api.Result(false, "key");
+            return new JsonOut().Obj().Bool("ok", SteamMatchmaking.SetLobbyData(Id(), key, value ?? ""));
         }
     }
 }

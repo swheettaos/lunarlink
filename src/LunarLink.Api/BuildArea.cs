@@ -1,6 +1,4 @@
 using System;
-using System.Globalization;
-using System.Text;
 using Il2CppInterop.Runtime;
 using MoonCleaners;
 using UnityEngine;
@@ -10,12 +8,20 @@ namespace LunarLink
     // Changing the world: structures and belts (check, create, remove), loose capsules, and the player's own build tool.
     static class BuildArea
     {
-        internal static void Start(string state)
+        internal static void Start()
         {
-            Api.Ask("/structures/check", "Body {kind, pos:[x,y,z], q:[x,y,z,w], support, raised, free, snapped}: the game's own placement check; builds nothing", r => Structure(Api.World, r.Body, false));
-            Api.Post("/structures/create", "Same body: build it with the game's TryBuildStructure (the player within about 22 m). Returns its id", r => Structure(Api.World, r.Body, true));
-            Api.Post("/structures/remove", "?ids=1,2,3[&refund=0][&robot=1] : out of the world from anywhere, refund paid unless refund=0; robots only with robot=1. One at a time with a gap", r => RemoveStructures(Api.World, r));
-            Api.Ask("/belts/check", "Body {start, startDir, end, endDir, startStructure, endStructure, startBelt, endBelt}: can this belt be built, its length and price", r => CheckBelt(Api.World, r.Body));
+            Api.Ask("/structures/check",
+                "Body {kind, pos:[x,y,z], q:[x,y,z,w], support, raised, free, snapped}: the game's own placement check; builds " +
+                    "nothing", r => Structure(Api.World, r.Body, false));
+            Api.Post("/structures/create",
+                "Same body: build it with the game's TryBuildStructure (the player within about 22 m). Returns its id",
+                r => Structure(Api.World, r.Body, true));
+            Api.Post("/structures/remove",
+                "?ids=1,2,3[&refund=0][&robot=1] : out of the world from anywhere, refund paid unless refund=0; robots only " +
+                    "with robot=1. One at a time with a gap", r => RemoveStructures(Api.World, r));
+            Api.Ask("/belts/check",
+                "Body {start, startDir, end, endDir, startStructure, endStructure, startBelt, endBelt}: can this belt be " +
+                    "built, its length and price", r => CheckBelt(Api.World, r.Body));
             Api.Post("/belts/create", "Same body: build the belt (the player within about 22 m). Returns its id", r => BuildBelt(Api.World, r.Body));
             Api.Post("/belts/remove", "?ids=1,2,3 : belts out with the game's undo, from anywhere, refunded", r => RemoveBelts(Api.World, r));
             Api.Post("/canisters/remove", "?id= : delete one loose capsule (not riding, carried or flying)", r => RemoveCanister(Api.World, r));
@@ -25,7 +31,7 @@ namespace LunarLink
             Api.Post("/builder/stop", "Put the build tool down", r => BuilderStop());
         }
 
-        internal static void Stop() { try { if (depotBuilder != null) BuilderStop(); } catch { } }
+        internal static void Stop() { try { if (depotBuilder != null) BuilderStop(); } catch (System.Exception caught) { Quiet.Note(caught); } }
 
         // the build tool's "place" press lasts placeFrames frames
         internal static void Update()
@@ -56,20 +62,23 @@ namespace LunarLink
             else p.rotation = Quaternion.identity;
             p.raised = Flag(body, "raised"); p.free = Flag(body, "free"); p.snapped = Flag(body, "snapped");
             if (e.TryGetProperty("hint", out var hv)) p.hint = hv.GetString();
-            string reason = null; bool ok;
+            string reason; bool ok;
             // the game's own placement check (what the blue preview waits for), stepped here until it is done
             var chk = w.BeginStructureCheck(p);
             for (int i = 0; i < 400 && chk != null && !chk.Done; i++) chk.Advance(50.0);
-            string ck = chk == null ? "null" : "{\"done\":" + (chk.Done ? "true" : "false") + ",\"valid\":" + (chk.Valid ? "true" : "false") + ",\"reason\":" + J.S(chk.Reason) + "}";
+            void Check(JsonOut o) { if (chk == null) o.Null("check");
+                else o.Obj("check").Bool("done", chk.Done).Bool("valid", chk.Valid).Str("reason", chk.Reason).End(); }
             if (build)
             {
                 int before = w.nextDepotId;
                 ok = w.TryBuildStructure(b, p, chk, out reason);
-                return Api.Result(ok, reason, ",\"id\":" + (ok ? before : -1) + ",\"check\":" + ck);
+                var built = Api.Result(ok, reason).Num("id", ok ? before : -1); Check(built);
+                return built.ToString();
             }
             ok = chk != null && chk.Done && chk.Valid; reason = chk?.Reason;
-            string ml = null; bool mok = w.MultiLevelPlanValid(p, out ml);
-            return Api.Result(ok, reason, ",\"check\":" + ck + ",\"multiLevel\":" + (mok ? "true" : "false") + ",\"multiLevelReason\":" + J.S(ml));
+            bool mok = w.MultiLevelPlanValid(p, out var ml);
+            var o = Api.Result(ok, reason); Check(o);
+            return o.Bool("multiLevel", mok).Str("multiLevelReason", ml).ToString();
         }
 
         // Driving the player's own build tool (2026-11-02): pick an item, aim it like the camera would, let the
@@ -88,49 +97,51 @@ namespace LunarLink
         }
         static string BuilderState()
         {
-            var db = DB(); if (db == null) return "{\"error\":\"no build tool\"}";
+            var db = DB(); if (db == null) return Api.Error("no build tool");
             var p = db.structurePlan;
-            // each field on its own: one null one (module, cell) used to blank the whole plan
-            var parts = new System.Collections.Generic.List<string>(); Vector3 ppos = Vector3.zero; Quaternion prot = Quaternion.identity; bool havePos = false;
-            void Add(string name, Func<string> f) { try { parts.Add("\"" + name + "\":" + f()); } catch { } }
+            var o = new JsonOut().Obj().Bool("placing", db.IsPlacing).Num("ghostKind", db.ghostKind).Bool("valid", db.PlacementValid)
+                .Str("reason", db.PlacementReason).Obj("plan");
+            // each field read on its own: one null one (module, cell) used to blank the whole plan
+            void Add(string name, Func<object> read)
+            {
+                object v; try { v = read(); } catch (System.Exception caught) { Quiet.Note(caught); return; }
+                if (v is bool flag) o.Bool(name, flag); else if (v is int n) o.Num(name, n); else o.Str(name, v?.ToString());
+            }
+            Vector3 ppos = Vector3.zero; Quaternion prot = Quaternion.identity; bool havePos = false;
             if (p != null)
             {
-                Add("kind", () => p.kind.ToString()); Add("support", () => p.support.ToString());
-                try { ppos = p.position; prot = p.rotation; havePos = true; } catch { }
-                if (havePos) { parts.Add("\"pos\":" + J.V(ppos)); parts.Add("\"q\":[" + J.F(prot.x) + "," + J.F(prot.y) + "," + J.F(prot.z) + "," + J.F(prot.w) + "]"); }
-                Add("raised", () => p.raised ? "true" : "false"); Add("snapped", () => p.snapped ? "true" : "false");
-                Add("hint", () => J.S(p.hint.ToString())); Add("cell", () => J.S(p.cell.ToString())); Add("joined", () => J.S(p.joined.ToString()));
+                Add("kind", () => p.kind); Add("support", () => p.support);
+                try { ppos = p.position; prot = p.rotation; havePos = true; } catch (System.Exception caught) { Quiet.Note(caught); }
+                if (havePos) o.Vec("pos", ppos).Nums("q", prot.x, prot.y, prot.z, prot.w);
+                Add("raised", () => p.raised); Add("snapped", () => p.snapped);
+                Add("hint", () => p.hint.ToString()); Add("cell", () => p.cell.ToString()); Add("joined", () => p.joined.ToString());
             }
-            string plan = "{" + string.Join(",", parts) + "}";
-            // ?overlaps: every collider inside a foundation-sized box at the preview - what "overlaps another tile" means
-            string over = "null";
-            if (havePos)
+            o.End();
+            // every collider inside a foundation-sized box at the preview: what "overlaps another tile" means
+            if (!havePos) return o.Null("overlaps").ToString();
+            var found = new System.Collections.Generic.List<(float box, Collider c)>();
+            try
             {
-                try
+                var up = prot * Vector3.up;
+                foreach (var off in new[] { 0.5f, -0.5f })
                 {
-                    var up = prot * Vector3.up; var sb = new StringBuilder("["); int n = 0;
-                    foreach (var off in new[] { 0.5f, -0.5f })
-                    {
-                        var hits = Physics.OverlapBox(ppos + up * off, new Vector3(3.9f, 0.45f, 3.9f), prot);
-                        for (int i = 0; hits != null && i < hits.Length && n < 16; i++)
-                        {
-                            var c = hits[i]; if (c == null) continue; var go = c.gameObject; var root = c.transform.root;
-                            if (n++ > 0) sb.Append(",");
-                            sb.Append("{\"box\":" + J.F(off) + ",\"name\":" + J.S(go.name) + ",\"root\":" + J.S(root != null ? root.name : null)
-                                + ",\"layer\":" + go.layer + ",\"trigger\":" + (c.isTrigger ? "true" : "false") + ",\"pos\":" + J.V(c.transform.position)
-                                + ",\"bounds\":" + J.V(c.bounds.size) + "}");
-                        }
-                    }
-                    over = sb.Append("]").ToString();
+                    var hits = Physics.OverlapBox(ppos + up * off, new Vector3(3.9f, 0.45f, 3.9f), prot);
+                    for (int i = 0; hits != null && i < hits.Length && found.Count < 16; i++) if (hits[i] != null) found.Add((off, hits[i]));
                 }
-                catch (Exception ex) { over = J.S("overlap check failed: " + ex.Message); }
+                o.Arr("overlaps");
+                foreach (var (box, c) in found)
+                {
+                    var root = c.transform.root;
+                    o.Obj().Num("box", box).Str("name", c.gameObject.name).Str("root", root != null ? root.name : null).Num("layer", c.gameObject.layer)
+                     .Bool("trigger", c.isTrigger).Vec("pos", c.transform.position).Vec("bounds", c.bounds.size).End();
+                }
+                return o.ToString();
             }
-            return "{\"placing\":" + (db.IsPlacing ? "true" : "false") + ",\"ghostKind\":" + db.ghostKind + ",\"valid\":" + (db.PlacementValid ? "true" : "false")
-                + ",\"reason\":" + J.S(db.PlacementReason) + ",\"plan\":" + plan + ",\"overlaps\":" + over + "}";
+            catch (Exception ex) { return o.Str("overlaps", "overlap check failed: " + ex.Message).ToString(); }
         }
         static string BuilderAim(string body)
         {
-            var db = DB(); if (db == null) return "{\"error\":\"no build tool\"}";
+            var db = DB(); if (db == null) return Api.Error("no build tool");
             var e = System.Text.Json.JsonDocument.Parse(body).RootElement;
             int kind = I(e, "kind");
             if (!db.IsPlacing || db.ghostKind != kind) { db.SetOpen(true); db.BeginPlacementFromShop(kind); }
@@ -144,15 +155,15 @@ namespace LunarLink
         }
         static string BuilderPlace()
         {
-            var db = DB(); if (db == null || db.TestInput == null) return "{\"error\":\"aim first\"}";
-            placeFrames = 1; return "{\"ok\":true,\"pressed\":true}";
+            var db = DB(); if (db == null || db.TestInput == null) return Api.Error("aim first");
+            placeFrames = 1; return new JsonOut().Obj().Bool("ok", true).Bool("pressed", true).ToString();
         }
         static string BuilderStop()
         {
-            var db = DB(); if (db == null) return "{\"error\":\"no build tool\"}";
+            var db = DB(); if (db == null) return Api.Error("no build tool");
             db.TestInput = null; placeFrames = 0;
-            try { db.CancelPlacement(); } catch { }
-            return "{\"ok\":true}";
+            try { db.CancelPlacement(); } catch (System.Exception caught) { Quiet.Note(caught); }
+            return Api.Ok;
         }
 
         static Vector3 V3(System.Text.Json.JsonElement e, string name, Vector3 dflt)
@@ -181,14 +192,16 @@ namespace LunarLink
             if (b == null) return Api.NoPlayer;
             var plan = Plan(body);
             bool ok = w.CheckConveyor(b, plan, out string reason, out MoonConveyorPath path, out Il2CppSystem.Decimal price, out bool routable);
-            return "{\"ok\":" + (ok ? "true" : "false") + ",\"reason\":" + J.S(reason) + ",\"routable\":" + (routable ? "true" : "false")
-                + ",\"length\":" + (path != null ? J.F(path.Length) : "null") + ",\"price\":" + J.S(price.ToString()) + "}";
+            var o = Api.Result(ok, reason).Bool("routable", routable);
+            if (path != null) o.Num("length", path.Length); else o.Null("length");
+            return o.Str("price", price.ToString()).ToString();
         }
 
 
         static bool Flag(string body, string name)
         {
-            try { return System.Text.Json.JsonDocument.Parse(body).RootElement.TryGetProperty(name, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.True; }
+            try { return System.Text.Json.JsonDocument.Parse(body).RootElement.TryGetProperty(name, out var v)
+                && v.ValueKind == System.Text.Json.JsonValueKind.True; }
             catch { return false; }
         }
         static string BuildBelt(MoonWorld w, string body)
@@ -196,7 +209,7 @@ namespace LunarLink
             var b = Api.Player;
             if (b == null) return Api.NoPlayer;
             bool ok = w.TryBuildConveyor(b, Plan(body), out string reason, out int id);
-            return Api.Result(ok, reason, ",\"id\":" + id);
+            return Api.Result(ok, reason).Num("id", id).ToString();
         }
 
         // ?ids=1,2,3[&refund=0][&robot=1] : straight out of the world, from anywhere, the player not moved (2026-11-09,
@@ -213,18 +226,19 @@ namespace LunarLink
             {
                 if (!kinds.TryGetValue(i, out var kind)) { missing++; continue; }
                 if (kind == 99 && !robots) { skipped++; continue; }
-                if (refund) { try { pay += Il2CppSystem.Decimal.ToDouble(w.StructureRefund(i)); } catch { } }
+                if (refund) { try { pay += Il2CppSystem.Decimal.ToDouble(w.StructureRefund(i)); } catch (System.Exception caught) { Quiet.Note(caught); } }
                 w.RemoveStructureNow(i); n++;
             }
             if (pay > 0)
             {
-                try { var me = Steamworks.SteamUser.GetSteamID().m_SteamID.ToString(); w.wallets.set_Item(me, new Il2CppSystem.Decimal(Il2CppSystem.Decimal.ToDouble(w.wallets.Balance) + pay)); }
+                try { var me = Steamworks.SteamUser.GetSteamID().m_SteamID.ToString();
+                    w.wallets.set_Item(me, new Il2CppSystem.Decimal(Il2CppSystem.Decimal.ToDouble(w.wallets.Balance) + pay)); }
                 catch (Exception e) { Plugin.L.LogWarning("structure refund: " + e.Message); }
             }
             int left = 0; foreach (var kv in w.depots) if (ids.Contains(kv.Key)) left++;
             Plugin.L.LogInfo($"remove structures: {n} removed, {skipped} robots skipped, {missing} not there, ${pay:0} refunded");
-            return "{\"ok\":" + (left == skipped ? "true" : "false") + ",\"removed\":" + n + ",\"skipped\":" + skipped + ",\"missing\":" + missing
-                + ",\"left\":" + left + ",\"refund\":" + J.F(pay) + "}";
+            return new JsonOut().Obj().Bool("ok", left == skipped).Num("removed", n).Num("skipped", skipped).Num("missing", missing)
+                .Num("left", left).Num("refund", pay).ToString();
         }
 
         // ?ids=1,2,3 : belts out with the game's own undo (UndoConveyors), which works from anywhere and refunds itself.
@@ -232,15 +246,15 @@ namespace LunarLink
         {
             var b = Api.Player; if (b == null) return Api.NoPlayer;
             var ids = Api.Ids(req, "ids");
-            double before = 0; try { before = Il2CppSystem.Decimal.ToDouble(w.wallets.Balance); } catch { }
+            double before = 0; try { before = Il2CppSystem.Decimal.ToDouble(w.wallets.Balance); } catch (System.Exception caught) { Quiet.Note(caught); }
             var list = new Il2CppSystem.Collections.Generic.List<int>(); var live = new System.Collections.Generic.HashSet<int>();
             foreach (var kv in w.conveyors) live.Add(kv.Key);
             foreach (var i in ids) if (live.Contains(i)) list.Add(i);
-            bool ok = list.Count == 0 || w.UndoConveyors(b, list.Cast<Il2CppSystem.Collections.Generic.IList<int>>(), out Il2CppSystem.Decimal back);
+            bool ok = list.Count == 0 || w.UndoConveyors(b, list.Cast<Il2CppSystem.Collections.Generic.IList<int>>(), out _);
             int left = 0; foreach (var kv in w.conveyors) if (ids.Contains(kv.Key)) left++;
-            double after = 0; try { after = Il2CppSystem.Decimal.ToDouble(w.wallets.Balance); } catch { }
-            return "{\"ok\":" + (ok && left == 0 ? "true" : "false") + ",\"asked\":" + list.Count + ",\"missing\":" + (ids.Count - list.Count)
-                + ",\"left\":" + left + ",\"refund\":" + J.F(after - before) + "}";
+            double after = 0; try { after = Il2CppSystem.Decimal.ToDouble(w.wallets.Balance); } catch (System.Exception caught) { Quiet.Note(caught); }
+            return new JsonOut().Obj().Bool("ok", ok && left == 0).Num("asked", list.Count).Num("missing", ids.Count - list.Count)
+                .Num("left", left).Num("refund", after - before).ToString();
         }
 
         // ?id= : remove one loose capsule (POST /canisters/remove). Looks it up by walking the canister dictionary (the same way /canisters
@@ -251,14 +265,14 @@ namespace LunarLink
             int id = Api.Qi(req, "id", -1);
             double kg = -1;
             foreach (var kv in w.canisters) if (kv.Key == id) { kg = kv.Value.kilograms; break; }
-            if (kg < 0) return "{\"ok\":false,\"reason\":\"no such canister\"}";
+            if (kg < 0) return Api.Result(false, "no such canister").ToString();
             Plugin.L.LogInfo($"remove canister {id}: checking state");
             if (w.IsCanisterRiding(id) || w.IsCanisterCarried(id) || w.IsCanisterFlying(id))
-                return "{\"ok\":false,\"reason\":\"canister is riding, carried or flying\"}";
+                return Api.Result(false, "canister is riding, carried or flying").ToString();
             Plugin.L.LogInfo($"remove canister {id}: RemoveCanister");
             w.RemoveCanister(id);
             Plugin.L.LogInfo($"remove canister {id}: done");
-            return "{\"ok\":true,\"kg\":" + J.F(kg) + "}";
+            return new JsonOut().Obj().Bool("ok", true).Num("kg", kg).ToString();
         }
 
     }

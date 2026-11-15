@@ -45,12 +45,14 @@ namespace LunarLink
 
         internal static bool Busy { get { lock (gate) return entries.Any(e => e.State == "checking" || e.State == "downloading" || e.State == "reloading"); } }
 
-        internal static string Json()
+        // each plugin with an update feed, into the array GET /update has open for them
+        internal static void Write(JsonOut o)
         {
             lock (gate)
-                return "[" + string.Join(",", entries.Select(e => "{\"name\":" + J.S(e.Name) + ",\"kind\":" + J.S(e.Kind) + ",\"version\":" + J.S(e.Version)
-                    + ",\"latest\":" + J.S(e.Latest) + ",\"state\":" + J.S(e.State) + ",\"from\":" + J.S(e.Host) + ",\"page\":" + J.S(e.Page)
-                    + ",\"notes\":" + J.S(e.Notes) + ",\"error\":" + J.S(e.Error) + "}")) + "]";
+                foreach (var e in entries)
+                    o.Obj().Str("name", e.Name).Str("kind", e.Kind).Str("version", e.Version).Str("latest", e.Latest).Str("state", e.State)
+                     .Str("from", e.Host).Str("page", e.Page).Str("notes", e.Notes).Str("error", e.Error).End();
+            o.End();
         }
 
         // On the main thread (a request or a frame): every plugin that answers UpdateFeed(), with its version and files.
@@ -61,7 +63,8 @@ namespace LunarLink
             {
                 if (name.StartsWith("LunarLink.", StringComparison.OrdinalIgnoreCase)) continue;      // LunarLink's own: the module channel
                 var feed = Feed(obj); if (feed == null) continue;
-                found.Add(new Entry { Name = name, Kind = "hot", Version = VersionOf(obj.GetType().Assembly), Feed = feed, Dir = System.IO.Path.GetDirectoryName(Hot.FileOf(name)), Dll = name + ".dll" });
+                found.Add(new Entry { Name = name, Kind = "hot", Version = VersionOf(obj.GetType().Assembly), Feed = feed,
+                    Dir = System.IO.Path.GetDirectoryName(Hot.FileOf(name)), Dll = name + ".dll" });
             }
             foreach (var info in IL2CPPChainloader.Instance.Plugins.Values)
             {
@@ -92,7 +95,7 @@ namespace LunarLink
                 foreach (var t in a.GetTypes())
                     if (t.GetCustomAttribute<BepInPlugin>() is BepInPlugin bp) return bp.Version.ToString();
             }
-            catch { }
+            catch (System.Exception caught) { Quiet.Note(caught); }
             return a.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? a.GetName().Version?.ToString();
         }
 
@@ -101,7 +104,8 @@ namespace LunarLink
 
         static bool Newer(string latest, string have)
         {
-            static Version V(string s) { s = (s ?? "").TrimStart('v'); int cut = s.IndexOfAny(new[] { '-', '+', ' ' }); if (cut > 0) s = s.Substring(0, cut); return Version.TryParse(s, out var v) ? v : null; }
+            static Version V(string s) { s = (s ?? "").TrimStart('v'); int cut = s.IndexOfAny(new[] { '-', '+', ' ' });
+                if (cut > 0) s = s.Substring(0, cut); return Version.TryParse(s, out var v) ? v : null; }
             var a = V(latest); var b = V(have);
             return a != null && (b == null || a > b);
         }
@@ -134,11 +138,13 @@ namespace LunarLink
             foreach (var a in r.GetProperty("assets").EnumerateArray())
             {
                 string n = a.GetProperty("name").GetString() ?? "", url = a.GetProperty("browser_download_url").GetString();
-                string sha = a.TryGetProperty("digest", out var d) && d.ValueKind == JsonValueKind.String && d.GetString().StartsWith("sha256:") ? d.GetString().Substring(7) : null;
+                string sha = a.TryGetProperty("digest", out var d) && d.ValueKind == JsonValueKind.String
+                    && d.GetString().StartsWith("sha256:") ? d.GetString().Substring(7) : null;
                 if (zip == null && n.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) { zip = url; zipSha = sha; }
                 else if (Own(e, n)) files.Add((n, url, sha));
             }
-            lock (gate) { e.Latest = latest; e.Notes = notes; e.Page = r.GetProperty("html_url").GetString(); e.ZipUrl = zip; e.ZipSha = zipSha; e.Files = files; }
+            lock (gate) { e.Latest = latest; e.Notes = notes; e.Page = r.GetProperty("html_url").GetString(); e.ZipUrl = zip;
+                e.ZipSha = zipSha; e.Files = files; }
             if (zip == null && files.Count == 0) throw new InvalidOperationException("release " + latest + " has no zip and no " + e.Dll);
         }
 
@@ -152,7 +158,8 @@ namespace LunarLink
             else
             {
                 var url = S(r, "url"); var name = Path.GetFileName(new Uri(url).AbsolutePath);
-                if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) { zip = url; zipSha = S(r, "sha256"); } else files.Add((name, url, S(r, "sha256")));
+                if (name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) { zip = url; zipSha = S(r, "sha256");
+                    } else files.Add((name, url, S(r, "sha256")));
             }
             lock (gate) { e.Latest = S(r, "version"); e.Notes = S(r, "notes"); e.Page = S(r, "page"); e.ZipUrl = zip; e.ZipSha = zipSha; e.Files = files; }
             if (e.Latest == null) throw new InvalidOperationException("the update file has no \"version\"");
@@ -171,8 +178,8 @@ namespace LunarLink
             lock (gate)
             {
                 var e = entries.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase));
-                if (e == null) return "{\"ok\":false,\"reason\":" + J.S("no plugin " + name + " with UpdateFeed() (check first: POST /update/check)") + "}";
-                if (e.State != "available") return "{\"ok\":false,\"reason\":" + J.S(name + " has no newer version") + "}";
+                if (e == null) return Api.Result(false, "no plugin " + name + " with UpdateFeed() (check first: POST /update/check)");
+                if (e.State != "available") return Api.Result(false, name + " has no newer version");
                 e.State = "downloading"; e.Error = null; picked = e;
             }
             Task.Run(ApplyNow);
@@ -218,20 +225,24 @@ namespace LunarLink
                     {
                         var path = Path.Combine(e.Dir, kv.Key);
                         File.WriteAllBytes(path + ".new", kv.Value);
-                        if (File.Exists(path)) { if (File.Exists(path + ".old")) File.Delete(path + ".old"); File.Move(path, path + ".old"); }   // a loaded DLL can be renamed
+                        // a loaded DLL can be renamed
+                        if (File.Exists(path)) { if (File.Exists(path + ".old")) File.Delete(path + ".old");
+                            File.Move(path, path + ".old"); }
                         File.Move(path + ".new", path);
                     }
                     lock (gate) e.State = "restart";
                 }
                 Plugin.L.LogInfo("update: " + e.Name + " " + e.Latest + " installed from " + e.Host + (e.Kind == "hot" ? "" : " (restart to finish)"));
             }
-            catch (Exception x) { lock (gate) { e.State = "failed"; e.Error = (x.InnerException ?? x).Message; } Plugin.L.LogWarning("update: " + e.Name + ": " + e.Error); }
+            catch (Exception x) { lock (gate) { e.State = "failed"; e.Error = (x.InnerException ?? x).Message;
+                } Plugin.L.LogWarning("update: " + e.Name + ": " + e.Error); }
         }
 
         // https only, and the SHA-256 must match
         static async Task<byte[]> Get(HttpClient c, string url, string sha)
         {
-            if (url == null || !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("only https:// downloads: " + url);
+            if (url == null || !url.StartsWith("https://",
+                StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("only https:// downloads: " + url);
             if (string.IsNullOrEmpty(sha)) throw new InvalidOperationException("no SHA-256 given for " + url + ": not installed");
             var b = await c.GetByteArrayAsync(url);
             if (Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(b)).ToLowerInvariant() != sha.ToLowerInvariant())

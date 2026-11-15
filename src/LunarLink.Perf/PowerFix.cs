@@ -35,7 +35,7 @@ namespace LunarLink
         static bool Load() { try { return System.IO.File.ReadAllText(Path).Trim() == "1"; } catch { return false; } }
         public static string Set(bool on)
         {
-            On = on; try { System.IO.File.WriteAllText(Path, on ? "1" : "0"); } catch { }
+            On = on; try { System.IO.File.WriteAllText(Path, on ? "1" : "0"); } catch (System.Exception caught) { Quiet.Note(caught); }
             if (!Installed) Install();
             return Json();
         }
@@ -109,7 +109,8 @@ namespace LunarLink
             }
             foreach (var m in machines)
             {
-                if (!machinePos.TryGetValue(m, out var mp)) { var r = (MoonDepotSnapshot)recordP.GetValue(m); machinePos[m] = mp = (r.id, new Vector3(r.x, r.y, r.z)); }
+                if (!machinePos.TryGetValue(m, out var mp)) { var r = (MoonDepotSnapshot)recordP.GetValue(m);
+                    machinePos[m] = mp = (r.id, new Vector3(r.x, r.y, r.z)); }
                 var (cx, cy, cz) = Cell(mp.pos); float best = float.MaxValue; int bestIdx = int.MaxValue;
                 for (int dx = -1; dx <= 1; dx++) for (int dy = -1; dy <= 1; dy++) for (int dz = -1; dz <= 1; dz++)
                 {
@@ -136,7 +137,8 @@ namespace LunarLink
         static int LoadBackoff() { try { return Math.Max(1, int.Parse(System.IO.File.ReadAllText(BackoffPath).Trim())); } catch { return 1; } }
         public static string SetBackoff(int n)
         {
-            OfferBackoff = Math.Max(1, n); try { System.IO.File.WriteAllText(BackoffPath, OfferBackoff.ToString()); } catch { }
+            OfferBackoff = Math.Max(1, n); try { System.IO.File.WriteAllText(BackoffPath, OfferBackoff.ToString()); }
+            catch (System.Exception caught) { Quiet.Note(caught); }
             if (!offerInstalled) InstallOffer();
             return Json();
         }
@@ -159,7 +161,9 @@ namespace LunarLink
         static bool OfferPrefix(int capsuleId, ref bool __result)
         {
             int f = Time.frameCount;
-            if (f - lastSweep > 600) { lastSweep = f; var old = new List<int>(); foreach (var kv in refusedAt) if (f - kv.Value > 600) old.Add(kv.Key); foreach (var k in old) refusedAt.Remove(k); }
+            if (f - lastSweep > 600) { lastSweep = f; var old = new List<int>();
+                foreach (var kv in refusedAt) if (f - kv.Value > 600) old.Add(kv.Key); foreach (var k in old) refusedAt.Remove(k);
+            }
             if (OfferBackoff > 1 && refusedAt.TryGetValue(capsuleId, out var at) && f - at < OfferBackoff) { OffersSkipped++; __result = false; return false; }
             OffersRun++; return true;
         }
@@ -169,11 +173,10 @@ namespace LunarLink
             if (__result) { refusedAt.Remove(capsuleId); OffersTaken++; } else refusedAt[capsuleId] = Time.frameCount;
         }
 
-        public static string Json() =>
-            "{\"ok\":" + (Reason == null ? "true" : "false") + ",\"on\":" + (On ? "true" : "false") + ",\"installed\":" + (Installed ? "true" : "false")
-            + ",\"fastRuns\":" + Runs + ",\"fastLastMs\":" + J.F((float)LastMs) + ",\"fastAvgMs\":" + J.F(Runs > 0 ? (float)(TotalMs / Runs) : 0f)
-            + ",\"modRuns\":" + origRuns + ",\"modAvgMs\":" + J.F(origRuns > 0 ? (float)(origTicks * 1000.0 / Stopwatch.Frequency / origRuns) : 0f)
-            + ",\"offerBackoff\":" + OfferBackoff + ",\"offersRun\":" + OffersRun + ",\"offersSkipped\":" + OffersSkipped + ",\"offersTaken\":" + OffersTaken
-            + ",\"reason\":" + J.S(Reason) + "}";
+        public static string Json() => new JsonOut().Obj().Bool("ok", Reason == null).Bool("on", On).Bool("installed", Installed)
+            .Num("fastRuns", Runs).Num("fastLastMs", (float)LastMs).Num("fastAvgMs", Runs > 0 ? (float)(TotalMs / Runs) : 0f)
+            .Num("modRuns", origRuns).Num("modAvgMs", origRuns > 0 ? (float)(origTicks * 1000.0 / Stopwatch.Frequency / origRuns) : 0f)
+            .Num("offerBackoff", OfferBackoff).Num("offersRun", OffersRun).Num("offersSkipped", OffersSkipped).Num("offersTaken", OffersTaken)
+            .Str("reason", Reason);
     }
 }

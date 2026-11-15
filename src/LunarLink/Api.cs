@@ -9,7 +9,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
-using System.Text;
 using MoonCleaners;
 
 namespace LunarLink
@@ -53,7 +52,7 @@ namespace LunarLink
         internal static string Dispatch(Req req, string path)
         {
             if (!routes.TryGetValue(path, out var r)) return null;
-            if (req.Method != r.Method) return "{\"error\":" + J.S("use " + r.Method + " for " + path) + "}";
+            if (req.Method != r.Method) return Error("use " + r.Method + " for " + path);
             if (r.Write) { var no = Writes(); if (no != null) return no; }
             return r.Run(req);
         }
@@ -64,8 +63,12 @@ namespace LunarLink
         internal static readonly string Core = typeof(Api).Assembly.GetName().Name;
         internal static bool IsCore(string path) => routes.TryGetValue(path, out var r) && r.Module == Core;
 
-        internal static string Unknown(string path) => "{\"error\":" + J.S("unknown path " + path) + ",\"paths\":["
-            + string.Join(",", All.Select(r => J.S(r.Method + " " + r.Path))) + "]}";
+        internal static string Unknown(string path)
+        {
+            var o = new JsonOut().Obj().Str("error", "unknown path " + path).Arr("paths");
+            foreach (var r in All) o.Str(r.Method + " " + r.Path);
+            return o;
+        }
 
         // ---- shared by the modules ----
 
@@ -76,7 +79,7 @@ namespace LunarLink
 
         // Writes stay off unless BepInEx/plugins/LunarLink/allow-writes exists; checked on every write.
         internal static string Writes() =>
-            System.IO.File.Exists(System.IO.Path.Combine(DataDir, "allow-writes")) ? null : "{\"error\":\"writes disabled (no allow-writes file)\"}";
+            System.IO.File.Exists(System.IO.Path.Combine(DataDir, "allow-writes")) ? null : Error("writes disabled (no allow-writes file)");
 
         internal static float Qf(Req req, string k, float dflt) =>
             float.TryParse(req.Query[k], NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v : dflt;
@@ -89,9 +92,11 @@ namespace LunarLink
             return ids;
         }
 
-        internal static string Result(bool ok, string reason, string extra = "") =>
-            "{\"ok\":" + (ok ? "true" : "false") + ",\"reason\":" + J.S(reason) + extra + "}";
+        // {"ok":..,"reason":..} and whatever the caller adds; .ToString() closes it
+        internal static JsonOut Result(bool ok, string reason) => new JsonOut().Obj().Bool("ok", ok).Str("reason", reason);
+        internal static string Error(string what) => new JsonOut().Obj().Str("error", what).ToString();
 
-        internal const string NoPlayer = "{\"error\":\"no local player\"}";
+        internal static readonly string Ok = new JsonOut().Obj().Bool("ok", true);
+        internal static readonly string NoPlayer = Error("no local player");
     }
 }

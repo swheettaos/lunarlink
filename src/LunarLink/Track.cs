@@ -89,7 +89,8 @@ namespace LunarLink
             finally
             {
                 // a thread that attached itself to Il2Cpp and ends without detaching would trip up the game's GC
-                try { var me = IL2CPP.il2cpp_thread_current(); if (me != IntPtr.Zero) IL2CPP.il2cpp_thread_detach(me); } catch { }
+                try { var me = IL2CPP.il2cpp_thread_current(); if (me != IntPtr.Zero) IL2CPP.il2cpp_thread_detach(me); }
+                catch (System.Exception caught) { Quiet.Note(caught); }
             }
         }
 
@@ -104,9 +105,10 @@ namespace LunarLink
             List<Thread> threads; List<object> keep; List<(object target, object handler, MethodBase remove)> events;
             lock (b) { threads = b.Threads.ToList(); keep = b.Keep.ToList(); events = b.Events.ToList(); }
             var live = threads.Where(t => t.IsAlive).ToList();
-            foreach (var t in live) try { t.Interrupt(); } catch { }
+            foreach (var t in live) try { t.Interrupt(); } catch (System.Exception caught) { Quiet.Note(caught); }
             var deadline = DateTime.UtcNow.AddSeconds(2);
-            foreach (var t in live) { var ms = (int)Math.Max(0, (deadline - DateTime.UtcNow).TotalMilliseconds); try { t.Join(ms); } catch { } }
+            foreach (var t in live) { var ms = (int)Math.Max(0, (deadline - DateTime.UtcNow).TotalMilliseconds);
+                try { t.Join(ms); } catch (System.Exception caught) { Quiet.Note(caught); } }
             var stuck = live.Where(t => t.IsAlive).Select(t => t.Name ?? "a thread").ToList();
             if (stuck.Count > 0) left.Add(stuck.Count + " thread(s) didn't stop (" + string.Join(", ", stuck.Take(3)) + "): busy without ever waiting");
             int undone = 0, bundles = 0;
@@ -115,7 +117,8 @@ namespace LunarLink
                 if (o.GetType().FullName == "UnityEngine.AssetBundle")
                 {
                     // Unload(true): the bundle and what was loaded from it; one already unloaded (by the plugin) throws, fine
-                    try { o.GetType().GetMethod("Unload", new[] { typeof(bool) })?.Invoke(o, new object[] { true }); bundles++; } catch { }
+                    try { o.GetType().GetMethod("Unload", new[] { typeof(bool) })?.Invoke(o, new object[] { true }); bundles++; }
+                    catch (System.Exception caught) { Quiet.Note(caught); }
                     continue;
                 }
                 try
@@ -132,7 +135,8 @@ namespace LunarLink
                 try { remove.Invoke(remove.IsStatic ? null : target, new[] { handler }); removed++; }
                 catch (Exception e) { left.Add("removing its " + remove.Name.Substring(7) + " handler: " + (e.InnerException ?? e).Message); }
             }
-            Pump.Journal("hot: stopped " + (live.Count - stuck.Count) + " thread(s), undid " + undone + " hook(s)/timer(s), unloaded " + bundles + " asset bundle(s), removed " + removed + " event handler(s)");
+            Pump.Journal("hot: stopped " + (live.Count - stuck.Count) + " thread(s), undid " + undone
+                + " hook(s)/timer(s), unloaded " + bundles + " asset bundle(s), removed " + removed + " event handler(s)");
             return left;
         }
 
@@ -151,9 +155,12 @@ namespace LunarLink
                 var ci = typeof(Il2CppInterop.Runtime.Injection.ClassInjector);
                 var reg = ci.GetMethod("RegisterTypeInIl2Cpp", BindingFlags.Public | BindingFlags.Static, null,
                     new[] { typeof(Type), typeof(Il2CppInterop.Runtime.Injection.RegisterTypeOptions) }, null);
-                var targets = new[] { "CreateTrampoline", "CreateEmptyCtor" }.Select(n => ci.GetMethod(n, BindingFlags.NonPublic | BindingFlags.Static)).ToList();
-                if (reg == null || targets.Any(t => t == null)) { pinProblem = "Il2CppInterop changed: in-game types of wrapped plugins can't be freed"; return; }
-                h.Patch(reg, prefix: new HarmonyMethod(typeof(HotTrack), nameof(RegPrefix)), finalizer: new HarmonyMethod(typeof(HotTrack), nameof(RegFinalizer)));
+                var targets = new[] { "CreateTrampoline",
+                    "CreateEmptyCtor" }.Select(n => ci.GetMethod(n, BindingFlags.NonPublic | BindingFlags.Static)).ToList();
+                if (reg == null || targets.Any(t => t == null)) { pinProblem = "Il2CppInterop changed: in-game types of " +
+                    "wrapped plugins can't be freed"; return; }
+                h.Patch(reg, prefix: new HarmonyMethod(typeof(HotTrack), nameof(RegPrefix)),
+                    finalizer: new HarmonyMethod(typeof(HotTrack), nameof(RegFinalizer)));
                 foreach (var t in targets) h.Patch(t, transpiler: new HarmonyMethod(typeof(HotTrack), nameof(AllocTranspiler)));
             }
             catch (Exception e) { pinProblem = "pins: " + e.Message; LunarLink.Plugin.L.LogWarning("hot: " + pinProblem); }
@@ -185,7 +192,7 @@ namespace LunarLink
         {
             List<GCHandle> l;
             lock (pins) { if (!pins.TryGetValue(a, out l)) return 0; pins.Remove(a); }
-            foreach (var h in l) try { h.Free(); } catch { }
+            foreach (var h in l) try { h.Free(); } catch (System.Exception caught) { Quiet.Note(caught); }
             return l.Count;
         }
 
@@ -206,7 +213,7 @@ namespace LunarLink
                     var cls = Il2CppClassPointerStore.GetNativeClassPointer(t);
                     if (cls != IntPtr.Zero) types.Add((t.FullName, Il2CppType.From(t), cls));
                 }
-                catch { }
+                catch (System.Exception caught) { Quiet.Note(caught); }
             if (types.Count == 0) return (0, null);
             var classes = new HashSet<IntPtr>(types.Select(t => t.cls));
             var held = new List<nint>();
@@ -217,11 +224,13 @@ namespace LunarLink
                     var c = o.TryCast<UnityEngine.Component>(); if (c == null) continue;
                     var go = c.gameObject;
                     bool onlyMine = !go.name.StartsWith("BepInEx", StringComparison.OrdinalIgnoreCase)
-                        && go.GetComponents<UnityEngine.Component>().All(x => x.TryCast<UnityEngine.Transform>() != null || classes.Contains(IL2CPP.il2cpp_object_get_class(x.Pointer)));
+                        && go.GetComponents<UnityEngine.Component>().All(x => x.TryCast<UnityEngine.Transform>() != null
+                            || classes.Contains(IL2CPP.il2cpp_object_get_class(x.Pointer)));
                     held.Add(IL2CPP.il2cpp_gchandle_new(c.Pointer, false));
                     if (onlyMine) { UnityEngine.Object.Destroy(go); objects++; } else { UnityEngine.Object.Destroy(c); comps++; }
                 }
-            if (comps + objects > 0) Pump.Journal("hot: destroying " + comps + " component(s) and " + objects + " game object(s) of " + string.Join(", ", types.Select(t => t.name)));
+            if (comps + objects > 0) Pump.Journal("hot: destroying " + comps + " component(s) and " + objects
+                + " game object(s) of " + string.Join(", ", types.Select(t => t.name)));
             ReleaseWhenGone(asm, types.Select(t => t.il2).ToList(), held);
             return (comps + objects, PinProblem != null ? "its Il2Cpp types' bridges can't be freed (" + PinProblem + "): this copy can't leave memory" : null);
         }
@@ -236,7 +245,8 @@ namespace LunarLink
 
         // Unity removes destroyed objects at the end of the frame. held: an Il2Cpp GC handle on each destroyed component,
         // so it can't be finalized before Frame lets go of it.
-        static readonly List<(Assembly asm, List<Il2CppSystem.Type> types, List<nint> held)> waiting = new List<(Assembly, List<Il2CppSystem.Type>, List<nint>)>();
+        static readonly List<(Assembly asm, List<Il2CppSystem.Type> types, List<nint> held)> waiting = new List<(Assembly,
+            List<Il2CppSystem.Type>, List<nint>)>();
 
         internal static void ReleaseWhenGone(Assembly asm, List<Il2CppSystem.Type> types, List<nint> held)
         {
