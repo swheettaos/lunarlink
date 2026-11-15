@@ -1109,13 +1109,14 @@ answer = '''
 '''
 
 ["/perf/fixes/modify"]
-about = "Change an fps fix; the setting is kept for the next start."
+about = "Switch an fps fix on or off, or set its value; saved in BepInEx/config/LunarLink.Perf.cfg (the same settings F9 shows) and in use at once."
 use = "Switch an fps fix on or off, or tune it, live: compare the frame rate with and without it."
 params = [
   ["name", "power|audio", "", "Which fix"],
-  ["on", "1|0", "", "With `name=power`: the fast power link on or off"],
-  ["backoff", "int", "", "With `name=power`: frames a refused capsule waits before it's offered again"],
-  ["m", "number", "60", "With `name=audio`: metres beyond which machine sounds stop (0 = off)"],
+  ["on", "1|0", "", "With `name=power`: the fast power link on or off. With `name=audio`: silencing far machines on or off"],
+  ["backoffOn", "1|0", "", "With `name=power`: the refused-offer back-off on or off"],
+  ["backoff", "int", "", "With `name=power`: frames a refused capsule waits before it's offered again (1 or less turns the back-off off)"],
+  ["m", "number", "60", "With `name=audio`: metres beyond which machine sounds stop (0 turns it off)"],
 ]
 example = "POST /perf/fixes/modify?name=audio&m=80"
 answer = '''

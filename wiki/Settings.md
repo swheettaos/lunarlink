@@ -1,6 +1,7 @@
 # Settings
 
-LunarLink's settings are in `BepInEx/config/lunarlink.cfg`, plus two files in `BepInEx/plugins/LunarLink/`.
+LunarLink's settings are in `BepInEx/config/lunarlink.cfg`, plus two files in `BepInEx/plugins/LunarLink/`. The Perf
+module's fps fixes have their own file, `BepInEx/config/LunarLink.Perf.cfg` (see [[Performance Tools]]).
 
 ## The server
 
@@ -37,6 +38,10 @@ This holds for plugins' endpoints too: LunarLink passes a `POST` on to a plugin 
 | `Window key` | `F9` | The key that opens and closes [[The F9 Window]] (an Input System key name) |
 | `Show LunarLink modules` | off | Whether the window lists LunarLink's own modules among the hot plugins (also **Lunar Link Modules** in the window) |
 
+A LunarLink module's settings (Lunar Link Performance's) are in use as soon as you change them in the window: the module
+reads its file again within a second. Other hot plugins' settings apply when you reload them (**Reload** on their
+settings page), and normal plugins' at the next start (**Restart & Apply**).
+
 ## Files LunarLink keeps
 
 In `BepInEx/plugins/LunarLink/`:
@@ -46,7 +51,6 @@ In `BepInEx/plugins/LunarLink/`:
 | `allow-writes` | Its presence allows changes (see above) |
 | `installed-version` | The stamp of the build `build.sh --install` put in |
 | `requests.log`, `requests.log.1` | Every request as it starts and finishes, and the stuck-frame report (see [[Troubleshooting]]) |
-| `power_fix.txt`, `offer_backoff.txt`, `audio_far.txt` | The fps fixes' settings (see [[Performance Tools]]) |
 | `dust_geometry.json`, `chunk_names.txt` | Written and read by `GET /dust/geometry` |
 
 In `BepInEx/hot/`, `hot.json` remembers which hot plugins are on (`enabled`) and which you turned off (`disabled`).

@@ -6,13 +6,14 @@ namespace LunarLink
     // Measuring and fps fixes. Every Harmony patch this module makes is under an id starting with "LunarLink.Perf.",
     // and Stop() takes them all out, so turning the module off (or reloading it) removes every timer and fix it put in.
     //   fixes: PowerFix (a faster PowerSystem.Link, and refused capsule offers backed off), AudioFix (machine sound loops
-    //   off beyond a distance). Their settings are files in BepInEx/plugins/LunarLink/.
+    //   off beyond a distance). Their settings: BepInEx/config/LunarLink.Perf.cfg (PerfSettings), changed live.
     public class PerfModule
     {
         internal const string Id = "LunarLink.Perf";
 
         public void Start(string state)
         {
+            PerfSettings.Load();
             Api.Get("/perf", "fps and ms per frame of the timed systems since the last read (read once, wait, read again); " +
                 "with the engine counters on, Unity's own (engineMs)", r => Read());
             Api.Post("/perf/engine",
@@ -27,7 +28,7 @@ namespace LunarLink
             Api.Get("/perf/fixes",
                 "The fps fixes: power (fast link on, offer back-off frames) and audio (silent beyond m metres), with their counters", r => Fixes());
             Api.Post("/perf/fixes/modify",
-                "?name=power&on=1|0 / ?name=power&backoff=N / ?name=audio&m=N (0 = off) : change a fix and keep the setting",
+                "?name=power&on=1|0 / ?name=power&backoffOn=1|0&backoff=N / ?name=audio&on=1|0&m=N : switch a fix on or off, or set its value (saved in BepInEx/config/LunarLink.Perf.cfg)",
                 r => Modify(r));
         }
 
@@ -43,6 +44,7 @@ namespace LunarLink
         public void Update()
         {
             EngineTimers.Sample();
+            PerfSettings.Update(UnityEngine.Time.unscaledTime);
             Perf.Frame();
             if (!PowerFix.Installed && PowerFix.On) PowerFix.Install();
             if (PowerFix.OfferBackoff > 1) PowerFix.InstallOffer();
@@ -86,11 +88,13 @@ namespace LunarLink
             switch (r.Query["name"])
             {
                 case "power":
-                    if (r.Query["backoff"] != null) PowerFix.SetBackoff(Api.Qi(r, "backoff", 1));
-                    if (r.Query["on"] != null) PowerFix.Set(r.Query["on"] == "1");
+                    if (r.Query["backoff"] != null) PerfSettings.SetBackoff(Api.Qi(r, "backoff", 1));
+                    if (r.Query["backoffOn"] != null) PerfSettings.SetBackoffOn(r.Query["backoffOn"] == "1");
+                    if (r.Query["on"] != null) PerfSettings.SetPower(r.Query["on"] == "1");
                     return new JsonOut().Obj().Bool("ok", true).Raw("power", PowerFix.Json());
                 case "audio":
-                    if (r.Query["m"] != null) AudioFix.Set(Api.Qf(r, "m", 60f));
+                    if (r.Query["m"] != null) PerfSettings.SetSilence(Api.Qf(r, "m", 60f));
+                    if (r.Query["on"] != null) PerfSettings.SetSilenceOn(r.Query["on"] == "1");
                     return new JsonOut().Obj().Bool("ok", true).Raw("audio", AudioFix.Json());
             }
             return Api.Result(false, "name=power or name=audio");

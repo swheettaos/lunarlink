@@ -79,11 +79,20 @@ namespace LunarLink
                 : setting.Value.Length > 22 ? setting.Value.Substring(0, 22) + "…" : setting.Value;
             var b = Button(row, value, new Vector2(Right - 75, 0), new Vector2(150, 34), typing, () =>
             {
-                if (setting.Type == PluginSettings.Kind.Toggle) Act(() => PluginSettings.Toggle(setting));
-                else if (setting.Type == PluginSettings.Kind.Choice) Act(() => PluginSettings.Next(setting));
+                if (setting.Type == PluginSettings.Kind.Toggle) Act(() => Live(PluginSettings.Toggle(setting), setting));
+                else if (setting.Type == PluginSettings.Kind.Choice) Act(() => Live(PluginSettings.Next(setting), setting));
                 else { editing = setting; draft = setting.Value; message = "Type a value for " + setting.Key + ". Enter saves; Escape cancels."; Draw(true); }
             }, 13);
             if (typing) settingText = b.GetComponentInChildren<Text>();
+        }
+
+        // Lunar Link's own modules watch their settings file and use a change at once (the Perf module's fixes): nothing
+        // waits for a reload or a restart
+        static string Live(string result, PluginSettings.Entry setting)
+        {
+            if (page == null || !page.Hot || !page.Name.StartsWith("LunarLink.", StringComparison.Ordinal)) return result;
+            PluginSettings.Applied(new[] { setting });
+            return result.Replace("Restart to apply.", "In use now.");
         }
 
         // ------------------------------------------------ typing a value
@@ -97,7 +106,7 @@ namespace LunarLink
                 var control = kb.get_Item(k);
                 if (control == null || !control.wasPressedThisFrame) continue;
                 if (k == Key.Escape) { editing = null; message = null; Draw(true); return; }
-                if (k == Key.Enter || k == Key.NumpadEnter) { message = PluginSettings.Set(editing, draft); editing = null; Draw(true); return; }
+                if (k == Key.Enter || k == Key.NumpadEnter) { message = Live(PluginSettings.Set(editing, draft), editing); editing = null; Draw(true); return; }
                 if (k == Key.Backspace) { if (draft.Length > 0) draft = draft.Substring(0, draft.Length - 1); }
                 else if (Typed(k, kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed) is char c && draft.Length < 120) draft += c;
                 if (settingText != null) settingText.text = draft + "  |  Enter = save";

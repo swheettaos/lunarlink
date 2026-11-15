@@ -13,11 +13,11 @@ namespace LunarLink
     // machine against every panel and asked the game for every panel's position each time - 873 x ~1300, ~80 ms a run,
     // a hitch every second (2026-11-07). This does the same: nearest panel whose range reaches the machine, its grid -
     // with positions remembered (nothing moves) and panels sorted into cells, so each machine only checks nearby ones.
-    // POST /perf/fixes/modify?name=power&on=1|0 switches it live; kept in power_fix.txt and installed once the game has loaded when on.
+    // Its setting (PerfSettings, "Fast power linking") switches it live; installed once the game has loaded when on.
     // MoonFramework is reached by name (no compile-time reference): LunarLink builds without it, and runs without it.
     static class PowerFix
     {
-        public static bool On = Load(), Installed; public static string Reason;
+        public static bool On, Installed; public static string Reason;
         static FieldInfo gridsF, gridOfF, panelsF; static PropertyInfo recordP;
 
         // MoonFramework's assembly, when it's loaded
@@ -31,14 +31,6 @@ namespace LunarLink
         static readonly Dictionary<int, float> rangeOf = new();
         public static int Runs; public static double LastMs, TotalMs; static long origTicks; static int origRuns;
 
-        static string Path => System.IO.Path.Combine(Api.DataDir, "power_fix.txt");
-        static bool Load() { try { return System.IO.File.ReadAllText(Path).Trim() == "1"; } catch { return false; } }
-        public static string Set(bool on)
-        {
-            On = on; try { System.IO.File.WriteAllText(Path, on ? "1" : "0"); } catch (System.Exception caught) { Quiet.Note(caught); }
-            if (!Installed) Install();
-            return Json();
-        }
 
         public static void Install()
         {
@@ -129,19 +121,10 @@ namespace LunarLink
         // ---- capsule offers (MoonFramework Intake -> Machines.Offer -> the Quantum adapter -> every output on its channel)
         // A capsule at a full line was offered again every frame - ~80 of ~86 offers a frame refused, each one a full try of
         // every output (2026-11-07). A refused capsule is not offered again for OfferBackoff frames (1 = every frame, the
-        // mod's way); POST /perf/fixes/modify?name=power&backoff=N, kept in offer_backoff.txt.
-        public static int OfferBackoff = LoadBackoff();
+        // mod's way); its setting is PerfSettings' "Refused offer back-off frames".
+        public static int OfferBackoff = 1;
         static readonly Dictionary<int, int> refusedAt = new();
         public static long OffersRun, OffersSkipped, OffersTaken; static int lastSweep;
-        static string BackoffPath => System.IO.Path.Combine(Api.DataDir, "offer_backoff.txt");
-        static int LoadBackoff() { try { return Math.Max(1, int.Parse(System.IO.File.ReadAllText(BackoffPath).Trim())); } catch { return 1; } }
-        public static string SetBackoff(int n)
-        {
-            OfferBackoff = Math.Max(1, n); try { System.IO.File.WriteAllText(BackoffPath, OfferBackoff.ToString()); }
-            catch (System.Exception caught) { Quiet.Note(caught); }
-            if (!offerInstalled) InstallOffer();
-            return Json();
-        }
         static bool offerInstalled;
         public static void InstallOffer()
         {

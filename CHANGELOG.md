@@ -10,6 +10,18 @@ changes the core needs a game restart; modules and hot plugins always update in 
   waiting to load. The row says "newer build from next start" or "on from next start"; the button shows on Mods (and on
   Updates for a core). Hot mods don't need it: they reload in place.
 
+- **The fps fixes are settings in F9** (Hot Mods → Show → Lunar Link Performance → Settings), each with its own on/off
+  switch and, where it takes one, its value: fast power linking; backing off refused offers, and how many frames;
+  silencing far machines, and beyond how many metres. A change is in use at once. They're kept in
+  `BepInEx/config/LunarLink.Perf.cfg`; the old `power_fix.txt`, `offer_backoff.txt` and `audio_far.txt` move in on
+  the first start and are removed.
+- **Performance timers count only the main thread.** Time a timed method spends on the game's worker threads (it builds
+  dust meshes there) was added into the frame; it now shows apart, as `backgroundMs`.
+- **More of Unity's own frame counters** in `GET /perf`: waiting for the frame rate limit (the game caps itself at 30 fps
+  while its window isn't in front), audio, UI canvases, renderer updates, particles and the game's garbage collector.
+- **Fixed: after Show / Hide of Lunar Link's modules in F9, some rows drew narrow** (old copies of the rows left under
+  the list).
+
 ## 1.3.1
 
 - **The F9 window is rebuilt** (Ty's rebuild) and fills the screen better. Four tabs: **Hot Mods** (was HOT PLUGINS),

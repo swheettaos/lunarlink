@@ -482,7 +482,7 @@ The normal BepInEx plugins: listed, and turned on or off for the next game start
 
 ### Perf (LunarLink.Perf)
 
-Measuring and fps fixes. Every Harmony patch this module makes is under an id starting with "LunarLink.Perf.", and Stop() takes them all out, so turning the module off (or reloading it) removes every timer and fix it put in. fixes: PowerFix (a faster PowerSystem.Link, and refused capsule offers backed off), AudioFix (machine sound loops off beyond a distance). Their settings are files in BepInEx/plugins/LunarLink/.
+Measuring and fps fixes. Every Harmony patch this module makes is under an id starting with "LunarLink.Perf.", and Stop() takes them all out, so turning the module off (or reloading it) removes every timer and fix it put in. fixes: PowerFix (a faster PowerSystem.Link, and refused capsule offers backed off), AudioFix (machine sound loops off beyond a distance). Their settings: BepInEx/config/LunarLink.Perf.cfg (PerfSettings), changed live.
 
 | Endpoint | What it does |
 |---|---|
@@ -493,7 +493,7 @@ Measuring and fps fixes. Every Harmony patch this module makes is under an id st
 | `GET /perf/methods` | ?type=X : the methods a class declares, to pick what to time |
 | `GET /census` | ?top= : every component class counted, with which have per-frame methods |
 | `GET /perf/fixes` | The fps fixes: power (fast link on, offer back-off frames) and audio (silent beyond m metres), with their counters |
-| `POST /perf/fixes/modify` | ?name=power&on=1\|0 / ?name=power&backoff=N / ?name=audio&m=N (0 = off) : change a fix and keep the setting |
+| `POST /perf/fixes/modify` | ?name=power&on=1\|0 / ?name=power&backoffOn=1\|0&backoff=N / ?name=audio&on=1\|0&m=N : switch a fix on or off, or set its value (saved in BepInEx/config/LunarLink.Perf.cfg) |
 
 ### Update (LunarLink.Update)
 
@@ -510,8 +510,8 @@ Updating LunarLink from GitHub's releases and the module channel, when asked (or
 **Removing**, one structure at a time with a gap of about 0.25 s: a structure removal costs the game about 15 ms if the
 last one was 0.25 s earlier, but 100-130 ms straight after another, so removing many in one go freezes the game.
 
-**The fixes** (the Perf module) keep their settings in small files in `plugins/LunarLink/` (`power_fix.txt`,
-`offer_backoff.txt`, `audio_far.txt`) and go in when the module starts, each only when its setting asks for it.
+**The fixes** (the Perf module) each have an on/off switch (and a value where they take one) in
+`BepInEx/config/LunarLink.Perf.cfg`, listed in F9 under Lunar Link Performance's Settings; a change is in use at once.
 
 **Reading the game's code** (the Dev area) is crash-safe: every read is a `ReadProcessMemory` on the game's own
 process; nothing in the game is initialised or called (except `POST /dev/call`). How a question is answered: `xref` finds where a message is used; `dis` that method; follow its calls with `dis` again.

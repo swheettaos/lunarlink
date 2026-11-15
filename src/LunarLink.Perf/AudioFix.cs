@@ -10,25 +10,12 @@ namespace LunarLink
     // ("Ran out of virtual channels. Audio clip solar-servo-loop will not be played") and logged a stack trace each
     // time - 2671 in one session (2026-11-07). MoonProductionView.Loop(ref source, clip, on, volume, distance) is the
     // game's own start/stop of a machine's loop: for machines further than FarMetres from the listener it is called
-    // with on = false, so the game stops that sound the normal way. POST /perf/fixes/modify?name=audio&m=N (0 = off), kept in audio_far.txt.
+    // with on = false, so the game stops that sound the normal way. Its setting is PerfSettings' "Silent beyond metres" (0 = off).
     static class AudioFix
     {
-        public static float FarMetres = Load(); public static bool Installed; public static string Reason;
+        public static float FarMetres = 60f; public static bool Installed; public static string Reason;
         public static long Silenced, Passed;
         static int listenerFrame = -1; static Vector3 ear; static bool hasEar;
-        static string Path => System.IO.Path.Combine(Api.DataDir, "audio_far.txt");
-        static float Load() { try { return Math.Max(0f,
-            float.Parse(System.IO.File.ReadAllText(Path).Trim(), System.Globalization.CultureInfo.InvariantCulture)); }
-        catch { return 60f; } }
-
-        public static string Set(float m)
-        {
-            FarMetres = Math.Max(0f, m);
-            try { System.IO.File.WriteAllText(Path, FarMetres.ToString(System.Globalization.CultureInfo.InvariantCulture)); }
-            catch (System.Exception caught) { Quiet.Note(caught); }
-            if (!Installed) Install();
-            return Json();
-        }
 
         public static void Install()
         {

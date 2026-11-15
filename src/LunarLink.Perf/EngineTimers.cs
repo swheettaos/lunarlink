@@ -17,6 +17,31 @@ namespace LunarLink
             ("Internal", "Gfx.WaitForGfxCommandsFromMainThread", "render thread waiting on main"),
             ("Render", "Batches Count", "#batches"), ("Render", "SetPass Calls Count", "#setpass calls"),
                 ("Render", "Draw Calls Count", "#draw calls"), ("Render", "Vertices Count", "#vertices"),
+            // the rest of Unity's frame, outside scripts, physics and rendering (added 2026-11-15: about 9 ms of a 36 ms
+            // frame was in none of the above); a marker this Unity doesn't have reads null
+            ("Internal", "WaitForTargetFPS", "waiting for target fps"),
+            ("Internal", "EarlyUpdate.ExecuteMainThreadJobs", "main-thread jobs"),
+            ("Internal", "PreUpdate.NewInputUpdate", "input"),
+            ("Internal", "Update.ScriptRunDelayedTasks", "scripts: async continuations"),
+            ("Internal", "Update.ScriptRunDelayedDynamicFrameRate", "scripts: coroutines"),
+            ("Internal", "Update.DirectorUpdate", "timeline / director"),
+            ("Internal", "PreLateUpdate.ParticleSystemBeginUpdateAll", "particles (begin)"),
+            ("Internal", "PostLateUpdate.ParticleSystemEndUpdateAll", "particles (end)"),
+            ("Internal", "PreLateUpdate.LegacyAnimationUpdate", "legacy animation"),
+            ("Internal", "PreLateUpdate.ConstraintManagerUpdate", "constraints"),
+            ("Internal", "PostLateUpdate.UpdateAllRenderers", "renderers update"),
+            ("Internal", "PostLateUpdate.UpdateAllSkinnedMeshes", "skinned meshes"),
+            ("Internal", "PostLateUpdate.PlayerUpdateCanvases", "UI canvases"),
+            ("Internal", "PostLateUpdate.PlayerEmitCanvasGeometry", "UI canvas geometry"),
+            ("Internal", "PostLateUpdate.UpdateAudio", "audio"),
+            ("Internal", "PostLateUpdate.UpdateVideo", "video"),
+            ("Internal", "PostLateUpdate.UpdateCustomRenderTextures", "custom render textures"),
+            ("Internal", "PostLateUpdate.UpdateLightProbeProxyVolumes", "light probe volumes"),
+            ("Internal", "PostLateUpdate.EnlightenRuntimeUpdate", "realtime GI"),
+            ("Internal", "PostLateUpdate.PlayerSendFrameComplete", "frame complete"),
+            ("Internal", "PostLateUpdate.PresentAfterDraw", "present"),
+            ("Physics", "Physics.SyncTransforms", "physics: sync transforms"),
+            ("Internal", "GC.Collect", "game GC"),
         };
         static Unity.Profiling.ProfilerRecorder[] rec;
         static Unity.Profiling.ProfilerCategory Cat(string n) => n switch
@@ -69,7 +94,7 @@ namespace LunarLink
             o.Num("frames", samples);
             for (int i = 0; i < Markers.Length; i++)
             {
-                if (sum == null || samples == 0) { o.Null(Markers[i].label); continue; }
+                if (sum == null || samples == 0 || !rec[i].Valid) { o.Null(Markers[i].label); continue; }
                 double x = sum[i] / samples;
                 // "#" counts, the rest ms
                 if (Markers[i].label.StartsWith("#")) o.Num(Markers[i].label, (long)x);

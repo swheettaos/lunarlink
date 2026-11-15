@@ -8,7 +8,7 @@ using UnityEngine;
 namespace LunarLink
 {
     // Stopwatches round the game's own per-frame systems, to see where the main thread goes.
-    // /perf: fps and ms per frame of each, since the last /perf (so: read once, wait, read again), the worst single frame
+    // /perf: fps and ms per frame of each (main thread only; worker-thread time apart, in backgroundMs), since the last /perf (so: read once, wait, read again), the worst single frame
 // of each, and every long frame ("blips", over 100 ms): how long, the timed systems that took most of it, and whether
 // a garbage collection ran in it (the game's IL2CPP one, and .NET's). Blips are caught with no timers in too.
     // Each timer is a Harmony prefix/postfix; hot per-object ones (MoonMachineBelt) add a little of their own cost.
@@ -38,6 +38,7 @@ namespace LunarLink
         // Once a frame (PerfModule.Update): what the frame that just ended cost, per system; and a blip if it was long.
         public static void Frame()
         {
+            mainThread = System.Threading.Thread.CurrentThread.ManagedThreadId;
             float dt = Time.unscaledDeltaTime;
             int g = -1, n = GC.CollectionCount(0);
             try { g = Il2CppSystem.GC.CollectionCount(0); } catch (System.Exception caught) { Quiet.Note(caught); }
@@ -148,15 +149,29 @@ namespace LunarLink
 
         static bool firstPost;
         static readonly Dictionary<MethodBase, string> startName = new(), doneName = new();
-        static void Pre(out long __state,
-            MethodBase __originalMethod) { Pump.Trace(startName.TryGetValue(__originalMethod, out var sn) ? sn
-            : "perf: start " + __originalMethod.Name); __state = Stopwatch.GetTimestamp(); }
+        // The game runs some timed methods on its worker threads too (MoonDustBankGeometry.UpdatePages builds dust meshes
+        // in a Task). That time doesn't hold up a frame, so it's kept apart ("backgroundMs"), under a lock, and the flight
+        // recorder (main thread only) isn't touched from there. Until 2026-11-15 it was added into msPerFrame.
+        static int mainThread = -1;
+        static bool OnMain => System.Threading.Thread.CurrentThread.ManagedThreadId == mainThread;
+        static readonly object bgLock = new();
+        static readonly Dictionary<string, long> bgTicks = new(); static readonly Dictionary<string, int> bgCalls = new();
+        static void Pre(out long __state, MethodBase __originalMethod)
+        {
+            if (OnMain) Pump.Trace(startName.TryGetValue(__originalMethod, out var sn) ? sn : "perf: start " + __originalMethod.Name);
+            __state = Stopwatch.GetTimestamp();
+        }
         static void Post(long __state, MethodBase __originalMethod)
         {
             long d = Stopwatch.GetTimestamp() - __state;
+            if (!name.TryGetValue(__originalMethod, out var k)) k = __originalMethod.Name;
+            if (!OnMain)
+            {
+                lock (bgLock) { bgTicks[k] = (bgTicks.TryGetValue(k, out var bt) ? bt : 0) + d; bgCalls[k] = (bgCalls.TryGetValue(k, out var bc) ? bc : 0) + 1; }
+                return;
+            }
             Pump.Trace(doneName.TryGetValue(__originalMethod, out var dn) ? dn : "perf: done  " + __originalMethod.Name);
             if (!firstPost) { firstPost = true; Pump.Journal("perf: first timed call: " + __originalMethod.Name); }
-            if (!name.TryGetValue(__originalMethod, out var k)) k = __originalMethod.Name;
             ticks[k] = (ticks.TryGetValue(k, out var t) ? t : 0) + d; calls[k] = (calls.TryGetValue(k, out var c) ? c : 0) + 1;
             frameTicks[k] = (frameTicks.TryGetValue(k, out var ft) ? ft : 0) + d;
         }
@@ -187,6 +202,13 @@ namespace LunarLink
             foreach (var k in keys) o.Nums(k, frames > 0 ? ticks[k] * ms / frames : 0, frames > 0 ? calls[k] / frames : 0);   // [ms, calls] per frame
             o.End().Obj("worstMs");
             foreach (var k in keys) o.Num(k, worst.TryGetValue(k, out var w) ? w * ms : 0);
+            // worker-thread time of the timed methods, per frame (not part of the frame: the main thread doesn't wait for it)
+            o.End().Obj("backgroundMs");
+            lock (bgLock)
+            {
+                foreach (var kv in bgTicks) o.Nums(kv.Key, frames > 0 ? kv.Value * ms / frames : 0, frames > 0 ? (double)bgCalls[kv.Key] / frames : 0);
+                bgTicks.Clear(); bgCalls.Clear();
+            }
             o.End().Arr("blips");
             foreach (var b in blips) o.Raw(null, b);
             o.End(); NetGc(o);
