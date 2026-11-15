@@ -13,9 +13,15 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Diagnostics;
+using System.IO;
+using System.Reflection;
+using Il2CppInterop.Runtime;
+using MoonCleaners;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 namespace LunarLink
@@ -47,37 +53,188 @@ namespace LunarLink
         const float W = 1040f, RowH = 76f, Gap = 8f, Head = 60f; const int MaxRows = 7;
         static int first;                      // the first row shown (scrolling)
         static int tab;                        // 0 hot plugins, 1 BepInEx plugins, 2 API (every endpoint, GET /help), 3 updates
+        static bool newUi;                     // temporary blank Quantum-style pane toggle
+        static int newUiTab;                   // 0 Link Plugins, 1 Other Plugins, 2 API, 3 Updates
         static bool bepTab => tab == 1;
         static string apiGroup;                // API tab: the area or plugin shown (null = all)
 
         // one row as drawn, whichever tab it comes from
         sealed class View
         {
-            public string Name, State, Detail, Tip; public Color StateColour;     // Tip: a "?" on the row
+            public string Name, State, Detail, Tip; public Color StateColour; public bool Disabled, Warm, UpdateAvailable;     // Tip: a "?" on the row
             public List<(string label, Action act, bool accent)> Buttons = new List<(string, Action, bool)>();
         }
 
-        static GameObject layer; static RectTransform panel; static GraphicRaycaster ray;
+        static GameObject layer, newUiCanvasObject; static RectTransform panel; static GraphicRaycaster ray, newUiRay;
+        static Canvas newUiCanvas;
         static readonly Dictionary<int, Action> actions = new Dictionary<int, Action>();
         static Key key = Key.None; static string keyName;
         static float nextRefresh; static string drawn, message;
         static CursorLockMode lockBefore; static bool visibleBefore;
+        static BaseInputModule previousInputModule; static bool previousInputModuleEnabled;
+        static MoonWalker walker; static bool previousWalkerBlocked, previousWalkerEnabled;
+        static InputActionAsset playerInput; static bool previousPlayerInputEnabled;
+        static readonly List<InputActionAsset> fallbackInputAssets = new List<InputActionAsset>();
+        static readonly HashSet<string> newUiOpenGroups = new HashSet<string>(StringComparer.Ordinal);
+        static readonly HashSet<string> newUiOpenModules = new HashSet<string>(StringComparer.Ordinal);
+        static readonly HashSet<string> newUiOpenBepPlugins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        static readonly HashSet<string> newUiOpenApiEndpoints = new HashSet<string>(StringComparer.Ordinal);
+        static bool newUiAnimateNext, newUiAutoGroup;
+        static bool newUiCapturingKey;
+        static float newUiScroll, newUiScrollTarget, newUiScrollVelocity, newUiScrollAnimationFrom, newUiScrollAnimationTo, newUiScrollAnimationUntil;
+        static readonly Dictionary<string, (float From, float To)> newUiQueuedArrowAnimations = new Dictionary<string, (float, float)>(StringComparer.Ordinal);
+        static readonly HashSet<string> newUiQueuedGradientRows = new HashSet<string>(StringComparer.Ordinal);
+        static readonly HashSet<string> newUiQueuedReloadRows = new HashSet<string>(StringComparer.Ordinal);
+        static RectTransform newUiContent, newUiViewport;
+        static RectTransform newUiTransition;
+        static CanvasGroup newUiTransitionGroup;
+        static float newUiTransitionUntil, newUiTransitionFadeDuration = 0.22f;
+        static bool newUiTransitionRemoveOnly;
+        static UnityEngine.UI.Text newUiModuleButtonText;
+        static Image newUiModuleButtonImage;
+        static UnityEngine.UI.Text newUiKeyInputText;
+        static Image newUiKeyInputImage;
+        static PluginSettings.Entry newUiEditingSetting;
+        static string newUiSettingDraft;
+        static UnityEngine.UI.Text newUiSettingInputText;
+        static bool newUiCapturingSetting;
+        static RectTransform newUiRestartButton;
+        static UnityEngine.UI.Text newUiRestartButtonText;
+        static UnityEngine.UI.Text newUiToastText;
+        static bool newUiShowSettingsToastNext;
+        static float newUiToastUntil;
+        static bool newUiRestartWaiting;
+        static float newUiRestartQuitAt;
+        static GameObject newUiFooterObject, newUiKeyRowObject;
+        static readonly Image[] newUiTabImages = new Image[4];
+        static readonly UnityEngine.UI.Text[] newUiTabTexts = new UnityEngine.UI.Text[4];
+        static readonly List<System.Text.Json.JsonElement> newUiGroups = new List<System.Text.Json.JsonElement>();
+        static readonly List<System.Text.Json.JsonElement> newUiChannels = new List<System.Text.Json.JsonElement>();
+        static int newUiRow;
+        static Image newUiTopFade, newUiBottomFade;
+        static Sprite newUiTopFadeSprite, newUiBottomFadeSprite;
+        sealed class UiRowTween { public RectTransform Row; public Vector2 From, To; public CanvasGroup FadeGroup; public float FadeFrom, FadeTo, FadeStart, FadeUntil, Until; }
+        sealed class UiArrowTween { public RectTransform Arrow; public float From, To, Until; }
+        sealed class UiImageTween { public Image Image; public float From, To, Start, Until; }
+        static readonly List<UiRowTween> newUiRowTweens = new List<UiRowTween>();
+        static readonly List<UiArrowTween> newUiArrowTweens = new List<UiArrowTween>();
+        static readonly List<UiImageTween> newUiImageTweens = new List<UiImageTween>();
+        static readonly Dictionary<string, RectTransform> newUiLiveRows = new Dictionary<string, RectTransform>(StringComparer.Ordinal);
+        static Sprite newUiFolderIcon;
 
         internal static void Update()
         {
+            if (newUiRestartWaiting)
+            {
+                if (Time.unscaledTime >= newUiRestartQuitAt) FinishNewUiRestart();
+                return;
+            }
+            if (newUiToastUntil > 0f && Time.unscaledTime >= newUiToastUntil)
+            {
+                if (newUiToastText != null) newUiToastText.transform.parent.gameObject.SetActive(false);
+                newUiToastUntil = 0f;
+            }
             SavedThenMenu(); LoadAgain();
             if (reopenTab >= 0 && layer == null) { tab = reopenTab; reopenTab = -1; Open(); message = "The window reloaded with the new build"; Draw(true); return; }
             var kb = Keyboard.current; if (kb == null) return;
+            if (newUiCapturingKey) { CaptureNewUiKey(kb); return; }
+            if (newUiCapturingSetting) { CaptureNewUiSetting(kb); return; }
             bool typing = false; try { typing = MoonCleaners.MoonInput.Typing; } catch { }   // not while typing in chat
             if (!typing && Pressed(kb)) { if (layer == null) Open(); else Close(); return; }
             if (layer == null) return;
+            var mouse = Mouse.current;
+            if (kb.escapeKey.wasPressedThisFrame || (mouse != null && mouse.rightButton.wasPressedThisFrame)) { Close(); return; }
             Click(); Tooltips();
-            var wheel = Mouse.current != null ? Mouse.current.scroll.ReadValue().y : 0f;
-            if (wheel != 0f) { Scroll(wheel > 0 ? -1 : 1); return; }
+            var wheel = mouse != null ? mouse.scroll.ReadValue().y : 0f;
+            if (wheel != 0f)
+            {
+                if (newUi) ScrollNewUi(wheel);
+                else Scroll(wheel > 0 ? -1 : 1);
+                return;
+            }
             if (Time.realtimeSinceStartup >= nextRefresh) Draw(false);
         }
 
-        internal static void LateUpdate() { if (layer != null) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; } }
+        internal static void LateUpdate()
+        {
+            if (layer != null) { Cursor.lockState = CursorLockMode.None; Cursor.visible = true; }
+            for (int i = newUiRowTweens.Count - 1; i >= 0; i--)
+            {
+                var a = newUiRowTweens[i]; if (a.Row == null) { newUiRowTweens.RemoveAt(i); continue; }
+                float t = Mathf.Clamp01(1f - (a.Until - Time.unscaledTime) / 0.22f);
+                float smooth = t * t * (3f - 2f * t);
+                a.Row.anchoredPosition = Vector2.LerpUnclamped(a.From, a.To, smooth);
+                if (a.FadeGroup != null)
+                {
+                    float fadeT = Mathf.Clamp01((Time.unscaledTime - a.FadeStart) / Mathf.Max(0.001f, a.FadeUntil - a.FadeStart));
+                    float fadeSmooth = fadeT * fadeT * (3f - 2f * fadeT);
+                    a.FadeGroup.alpha = Mathf.LerpUnclamped(a.FadeFrom, a.FadeTo, fadeSmooth);
+                }
+                if (t >= 1f) newUiRowTweens.RemoveAt(i);
+            }
+            for (int i = newUiArrowTweens.Count - 1; i >= 0; i--)
+            {
+                var a = newUiArrowTweens[i]; if (a.Arrow == null) { newUiArrowTweens.RemoveAt(i); continue; }
+                float t = Mathf.Clamp01(1f - (a.Until - Time.unscaledTime) / 0.22f);
+                float smooth = t * t * (3f - 2f * t);
+                a.Arrow.localRotation = Quaternion.Euler(0, 0, Mathf.LerpUnclamped(a.From, a.To, smooth));
+                if (t >= 1f) newUiArrowTweens.RemoveAt(i);
+            }
+            if (newUiScrollAnimationUntil > 0f && newUiContent != null)
+            {
+                float t = Mathf.Clamp01(1f - (newUiScrollAnimationUntil - Time.unscaledTime) / 0.22f);
+                float smooth = t * t * (3f - 2f * t);
+                newUiScroll = Mathf.LerpUnclamped(newUiScrollAnimationFrom, newUiScrollAnimationTo, smooth);
+                newUiContent.anchoredPosition = new Vector2(0, newUiScroll);
+                if (newUiTransition != null) newUiTransition.anchoredPosition = new Vector2(0, newUiScroll);
+                UpdateNewUiFades();
+                if (t >= 1f) newUiScrollAnimationUntil = 0f;
+            }
+            else if (newUiContent != null && Mathf.Abs(newUiScroll - newUiScrollTarget) > 0.01f)
+            {
+                float max = Mathf.Max(0f, newUiContent.rect.height - newUiViewport.rect.height);
+                newUiScrollTarget = Mathf.Clamp(newUiScrollTarget, 0f, max);
+                newUiScroll = Mathf.SmoothDamp(newUiScroll, newUiScrollTarget, ref newUiScrollVelocity, 0.09f, 2600f, Time.unscaledDeltaTime);
+                if (Mathf.Abs(newUiScroll - newUiScrollTarget) < 0.05f)
+                {
+                    newUiScroll = newUiScrollTarget;
+                    newUiScrollVelocity = 0f;
+                }
+                newUiContent.anchoredPosition = new Vector2(0f, newUiScroll);
+                if (newUiTransition != null) newUiTransition.anchoredPosition = new Vector2(0f, newUiScroll);
+                UpdateNewUiFades();
+            }
+            for (int i = newUiImageTweens.Count - 1; i >= 0; i--)
+            {
+                var a = newUiImageTweens[i]; if (a.Image == null) { newUiImageTweens.RemoveAt(i); continue; }
+                float t = Mathf.Clamp01((Time.unscaledTime - a.Start) / Mathf.Max(0.001f, a.Until - a.Start));
+                float smooth = t * t * (3f - 2f * t);
+                var color = a.Image.color; color.a = Mathf.LerpUnclamped(a.From, a.To, smooth); a.Image.color = color;
+                if (t >= 1f) newUiImageTweens.RemoveAt(i);
+            }
+            if (newUiTransitionUntil > 0 && newUiTransitionGroup != null)
+            {
+                if (newUiTransitionRemoveOnly)
+                {
+                    if (Time.unscaledTime >= newUiTransitionUntil)
+                    {
+                        for (int i = newUiTransition.childCount - 1; i >= 0; i--) UnityEngine.Object.DestroyImmediate(newUiTransition.GetChild(i).gameObject);
+                        newUiTransitionGroup.alpha = 1f; newUiTransitionUntil = 0f; newUiTransitionRemoveOnly = false;
+                    }
+                }
+                else
+                {
+                    float t = Mathf.Clamp01(1f - (newUiTransitionUntil - Time.unscaledTime) / Mathf.Max(0.001f, newUiTransitionFadeDuration));
+                    float smooth = t * t * (3f - 2f * t);
+                    newUiTransitionGroup.alpha = 1f - smooth;
+                    if (t >= 1f)
+                    {
+                        for (int i = newUiTransition.childCount - 1; i >= 0; i--) UnityEngine.Object.DestroyImmediate(newUiTransition.GetChild(i).gameObject);
+                        newUiTransitionGroup.alpha = 1f; newUiTransitionUntil = 0f;
+                    }
+                }
+            }
+        }
 
         static bool Pressed(Keyboard kb)
         {
@@ -94,8 +251,12 @@ namespace LunarLink
             var sc = layer.AddComponent<CanvasScaler>(); sc.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             sc.referenceResolution = new Vector2(1920, 1080); sc.matchWidthOrHeight = 1f;
             ray = layer.AddComponent<GraphicRaycaster>();
-            if (EventSystem.current == null) { ownEventSystem = new GameObject("LunarLink EventSystem"); ownEventSystem.AddComponent<EventSystem>(); UnityEngine.Object.DontDestroyOnLoad(ownEventSystem); }
+            var es = EventSystem.current;
+            if (es == null) { ownEventSystem = new GameObject("LunarLink EventSystem"); es = ownEventSystem.AddComponent<EventSystem>(); UnityEngine.Object.DontDestroyOnLoad(ownEventSystem); }
+            previousInputModule = es.GetComponent<BaseInputModule>();
+            if (previousInputModule != null) { previousInputModuleEnabled = previousInputModule.enabled; previousInputModule.enabled = false; }
             message = null; first = 0;
+            Freeze();
             Draw(true);
         }
 
@@ -118,16 +279,36 @@ namespace LunarLink
             if (layer != null) Close();
             if (ownEventSystem != null) { UnityEngine.Object.Destroy(ownEventSystem); ownEventSystem = null; }
             // the sprites go with this copy of the module, so a reload leaves no textures behind
-            foreach (var s in new[] { rounded, button, circle, warm, cool })
+            foreach (var s in new[] { rounded, button, circle, warm, cool, grey, pill, newUiFolderIcon, newUiTopFadeSprite, newUiBottomFadeSprite })
                 if (s != null) { UnityEngine.Object.Destroy(s.texture); UnityEngine.Object.Destroy(s); }
-            rounded = button = circle = warm = cool = null;
+            rounded = button = circle = warm = cool = grey = pill = newUiFolderIcon = null;
+            newUiTopFadeSprite = newUiBottomFadeSprite = null;
+            newUiLiveRows.Clear();
+            newUiQueuedGradientRows.Clear();
+            newUiQueuedReloadRows.Clear();
+            newUiImageTweens.Clear(); newUiTransitionRemoveOnly = false;
         }
 
         static void Close()
         {
             actions.Clear(); tips.Clear();
             if (layer != null) UnityEngine.Object.Destroy(layer);
+            if (newUiCanvasObject != null) UnityEngine.Object.Destroy(newUiCanvasObject);
+            newUiCanvasObject = null; newUiCanvas = null; newUiRay = null;
             layer = null; panel = null; ray = null; drawn = null;
+            newUiModuleButtonText = null; newUiModuleButtonImage = null;
+            newUiKeyInputText = null; newUiKeyInputImage = null; newUiCapturingKey = false;
+            newUiEditingSetting = null; newUiSettingDraft = null; newUiSettingInputText = null; newUiCapturingSetting = false;
+            newUiRestartButton = null;
+            newUiRestartButtonText = null; newUiRestartWaiting = false;
+            newUiToastText = null; newUiToastUntil = 0f; newUiShowSettingsToastNext = false;
+            newUiLiveRows.Clear();
+            newUiQueuedGradientRows.Clear();
+            newUiQueuedReloadRows.Clear();
+            newUiImageTweens.Clear(); newUiTransitionRemoveOnly = false;
+            newUiScroll = newUiScrollTarget = newUiScrollVelocity = 0f;
+            if (previousInputModule != null) { previousInputModule.enabled = previousInputModuleEnabled; previousInputModule = null; }
+            Unfreeze();
             Cursor.lockState = lockBefore; Cursor.visible = visibleBefore;
         }
 
@@ -183,8 +364,10 @@ namespace LunarLink
                 hidden = modules = 0;
                 foreach (var e in BepPlugins.List())
                 {
-                    var v = new View { Name = e.Name + (e.Version != null ? "  " + e.Version : ""), State = e.State, StateColour = StateColour(e.State),
-                                       Detail = e.File + (e.NeededBy.Count > 0 ? "   needed by " + string.Join(", ", e.NeededBy) : "") + (e.State.Contains("next start") ? "   <color=#FF7A2E>restart the game to apply</color>" : "") };
+                    var ordinary = e.State == "running" || e.State == "off" || e.State == "off from next start";
+                    var v = new View { Name = DisplayNames.For(e.Name) + (e.Version != null ? "  " + e.Version : ""), State = ordinary ? "" : e.State, StateColour = StateColour(e.State),
+                                       Disabled = e.State == "off" || e.State == "off from next start", Warm = e.State != "off" && e.State != "off from next start",
+                                       Detail = e.File + (e.NeededBy.Count > 0 ? "   needed by " + string.Join(", ", e.NeededBy.Select(DisplayNames.For)) : "") + (e.State.Contains("next start") ? "   <color=#FF7A2E>restart the game to apply</color>" : "") };
                     var file = e.File;
                     if (e.Self) v.Detail += "   (runs this window)";
                     else if (e.State == "running") v.Buttons.Add(("Disable", () => Act(() => BepPlugins.Disable(file) ?? "Turned off: " + file + ". RESTART THE GAME to apply (it keeps running until then)"), false));
@@ -200,7 +383,8 @@ namespace LunarLink
             var rows = all.Where(Show).ToList(); hidden = all.Count - rows.Count;
             foreach (var r in rows)
             {
-                var v = new View { Name = r.Name, State = r.State, StateColour = StateColour(r.State),
+                var v = new View { Name = DisplayNames.For(r.Name), State = r.State == "running" || r.State == "disabled" ? "" : r.State, StateColour = StateColour(r.State),
+                    Disabled = r.State == "disabled", Warm = r.State != "disabled", UpdateAvailable = r.Newer,
                     Detail = r.Error != null ? "<color=#E6524A>" + Short(r.Error) + "</color>"
                         : (FileVersion(r.Name) is string fv ? V(fv) + "   ·   " : "") + (r.Built != null ? "built " + r.Built : "") + (r.Newer ? "   <color=#FF7A2E>newer build on disk</color>" : "") + (r.NeedsRestart ? "   restart to register buildings" : "")
                         + (r.Wrapped ? "   <color=#FF7A2E>wrapped (experimental)</color>" : "") };
@@ -209,8 +393,8 @@ namespace LunarLink
                 if (r.State == "off at restart") v.Detail += "   <color=#FF7A2E>off from the next start</color>";
                 bool waits = r.State == "reloads at main menu";
                 if (waits) v.Detail += "   <color=#FF7A2E>new copy loads at the main menu (or the next start)</color>";
-                bool off = r.State == "disabled" || r.State == "off at restart"; var name = r.Name;
-                v.Buttons.Add((off ? "Enable" : "Disable", () => Act(() => off ? Done(Hot.Enable(name, reload: false), "Enabled " + name) : Done(Hot.Disable(name), "Disabled " + name)), off));
+                bool off = r.State == "disabled" || r.State == "off at restart"; var name = r.Name; var display = DisplayNames.For(name);
+                v.Buttons.Add((off ? "Enable" : "Disable", () => Act(() => off ? Done(Hot.Enable(name, reload: false), "Enabled " + display) : Done(Hot.Disable(name), "Disabled " + display)), off));
                 // a wrapped plugin that loads its own content, in a world: Reload waits for the main menu (Hot.Waits), no forcing
                 if (waits)
                 {
@@ -228,7 +412,7 @@ namespace LunarLink
                 {
                     var pl = Hot.Enable(name, reload: true);
                     return pl != null && pl.ReloadAtMenu ? name + " " + Hot.WaitReason(pl) + ", so its new copy loads at the main menu (in a world it couldn't save properly). Save & reload does it all and brings you back to this save"
-                        : Done(pl, "Reloaded " + name);
+                        : Done(pl, "Reloaded " + display);
                 }), false));
                 list.Add(v);
             }
@@ -238,21 +422,37 @@ namespace LunarLink
         // Rebuilds the window when what it shows has changed (checked once a second, and after every button).
         static void Draw(bool force)
         {
+            // A reload can deliver one final Update call while the previous
+            // window has already been torn down. Ignore that harmless frame.
+            if (layer == null) return;
             nextRefresh = Time.realtimeSinceStartup + 1f;
             var rows = Views(out int hidden, out int modules);
             first = Math.Max(0, Math.Min(first, rows.Count - MaxRows));
-            var sig = tab + "|" + apiGroup + "|" + string.Join("|", rows.Select(r => r.Name + r.State + r.Detail)) + "|" + message + "|" + first + "|" + hidden + "|" + ReadUpdates().busy + "|" + ReadUpdates().Waiting;
+            var sig = newUi + "|" + newUiTab + "|" + tab + "|" + apiGroup + "|" + string.Join("|", rows.Select(r => r.Name + r.State + r.Detail)) + "|" + message + "|" + first + "|" + hidden + "|" + ReadUpdates().busy + "|" + ReadUpdates().Waiting;
             if (!force && sig == drawn) return;
             drawn = sig;
+            if (newUi && panel != null && newUiContent != null)
+            {
+                RefreshNewUiContent();
+                return;
+            }
             actions.Clear(); tips.Clear();
             if (panel != null) UnityEngine.Object.Destroy(panel.gameObject);
+            panel = null; newUiContent = null; newUiViewport = null; newUiTransition = null; newUiTransitionGroup = null;
+            if (newUi)
+            {
+                DrawNewUiPane();
+                return;
+            }
             // one size on every tab and filter: room for MaxRows rows and the message line, the scroll bar for more
             int shown = Math.Min(MaxRows, rows.Count);
             float listH = MaxRows * (RowH + Gap);
-            float h = Head + 210f + listH + 44f;
+            float h = Head + 190f + listH + 30f;
             panel = Rect("Window", layer.transform, new Vector2(W, h), Vector2.zero, Panel);
+            ray = layer.GetComponent<GraphicRaycaster>();
+            UiVersionToggle(panel, W, h);
             // the header: the title in the middle, a "?" beside it, the close cross on the right
-            Label(panel, "LunarLink", new Vector2(0, h / 2 - 38), new Vector2(400, 56), 32, Ink, TextAnchor.MiddleCenter);
+            Label(panel, "Lunar Link", new Vector2(0, h / 2 - 38), new Vector2(400, 56), 32, Ink, TextAnchor.MiddleCenter);
             string keyLabel = KeySetting?.Value ?? "F9";
             Help(panel, new Vector2(110, h / 2 - 38),
                 "<b>HOT PLUGINS</b>: the DLLs in BepInEx/hot/. Enable, Disable (it leaves memory) and Reload, all while the game runs.\n" +
@@ -273,12 +473,15 @@ namespace LunarLink
             float top = h / 2f - Head;
             // the tabs: pills, the open one orange
             int waiting = ReadUpdates().Waiting;          // a count on the UPDATES tab when something has an update
-            float tx = -(230 + 260 + 130 + 180 + 3 * 10) / 2f;
-            Tab(panel, "HOT PLUGINS", tab == 0, new Vector2(tx + 115, top - 26), () => { tab = 0; first = 0; message = null; Draw(true); }, 230); tx += 240;
-            Tab(panel, "BEPINEX PLUGINS", tab == 1, new Vector2(tx + 130, top - 26), () => { tab = 1; first = 0; message = null; Draw(true); }, 260); tx += 270;
-            Tab(panel, "API", tab == 2, new Vector2(tx + 65, top - 26), () => { tab = 2; first = 0; message = null; Draw(true); }, 130); tx += 140;
-            Tab(panel, "UPDATES" + (waiting > 0 ? "  <color=" + (tab == 3 ? "#1C2232" : "#FF7A2E") + ">●" + waiting + "</color>" : ""), tab == 3, new Vector2(tx + 90, top - 26), () => { tab = 3; first = 0; message = null; Draw(true); }, 180);
-            Label(panel, (tab == 3 ? "LunarLink and plugins with updates" : tab == 2 ? "every endpoint (GET /help)" : bepTab ? "BepInEx/plugins/" : "BepInEx/hot/") + "   ·   " + keyLabel + " closes", new Vector2(-W / 2 + 245, top - 88), new Vector2(420, 26), 17, Dim, TextAnchor.MiddleLeft);
+            float tx = -(230 + 260 + 130 + 180 + 3 * 16) / 2f;
+            Tab(panel, "HOT PLUGINS", tab == 0, new Vector2(tx + 115, top - 35), () => { tab = 0; first = 0; message = null; Draw(true); }, 230,
+                "Hot Plugins are Lunar Link-compatible modules that can be enabled, disabled, reloaded, or updated while the game is running. A module may still need a restart if it adds game buildings or other startup-only content."); tx += 246;
+            Tab(panel, "BEPINEX PLUGINS", tab == 1, new Vector2(tx + 130, top - 35), () => { tab = 1; first = 0; message = null; Draw(true); }, 260,
+                "BepInEx Plugins are traditional mods in BepInEx/plugins. Lunar Link can rename their DLLs to enable or disable them, but those changes apply at the next game start because normal plugins cannot be safely unloaded."); tx += 276;
+            Tab(panel, "API", tab == 2, new Vector2(tx + 65, top - 35), () => { tab = 2; first = 0; message = null; Draw(true); }, 130,
+                "API is the advanced/developer view. It lists the local HTTP endpoints exposed by Lunar Link and compatible plugins. Most players can ignore this tab; it is useful for automation, diagnostics, and mod development."); tx += 146;
+            Tab(panel, "UPDATES" + (waiting > 0 ? "  <color=" + (tab == 3 ? "#1C2232" : "#FF7A2E") + ">●" + waiting + "</color>" : ""), tab == 3, new Vector2(tx + 90, top - 35), () => { tab = 3; first = 0; message = null; Draw(true); }, 180,
+                "Updates checks the configured feeds for Lunar Link, compatible modules, and supported plugins. Hot modules can reload in place; a new Lunar Link core or a normal BepInEx plugin requires a restart.\n\nOnly Lunar Link-compatible mods appear here. If a mod is missing, install one compatible release manually first.");
             if (tab == 2)
             {
                 // one button steps through the areas and plugins (All, LunarLink, World, ... , each plugin)
@@ -309,21 +512,22 @@ namespace LunarLink
             }
             else if (!bepTab)
             {
-                Button(panel, "Reload changed", new Vector2(W / 2 - 295, top - 88), new Vector2(200, 42), () => Act(() =>
-                {
-                    var done = Hot.ReloadChanged();
-                    return done.Count == 0 ? "No newer builds on disk" : "Reloaded " + string.Join(", ", done.Select(p => p.Name));
-                }), true);
-                Button(panel, "Rescan", new Vector2(W / 2 - 115, top - 88), new Vector2(130, 42), () => Act(() =>
+                Button(panel, "↻", new Vector2(W / 2 - 88, top - 88), new Vector2(44, 44), () => Act(() =>
                 {
                     var (added, removed) = Hot.RescanAll();
                     return added.Count + removed.Count == 0 ? "No new or removed DLLs" : "Added " + added.Count + ", removed " + removed.Count;
-                }));
-                Checkbox(panel, "Show LunarLink modules (" + modules + ")", ShowModules?.Value ?? false, new Vector2(-W / 2 + 226, top - 134), () =>
+                }), true);
+                ToggleButton(panel, "Show LunarLink modules (" + modules + ")", ShowModules?.Value ?? false, new Vector2(-W / 2 + 250, top - 134), () =>
                 {
                     if (ShowModules != null) ShowModules.Value = !ShowModules.Value;
+                    SaveWindowSettings();
                     first = 0; Draw(true);
                 });
+                Button(panel, "Reload All", new Vector2(W / 2 - 156, -h / 2 + 38), new Vector2(180, 42), () => Act(() =>
+                {
+                    var done = Hot.ReloadChanged();
+                    return done.Count == 0 ? "No newer builds on disk" : "Reloaded " + string.Join(", ", done.Select(p => DisplayNames.For(p.Name)));
+                }), true);
             }
             else
             {
@@ -332,14 +536,1083 @@ namespace LunarLink
                                          : "Plugins load at game start: Disable and Enable apply at the next start (restart required).",
                     new Vector2(-W / 2 + 380, top - 134), new Vector2(720, 28), 18, Dim, TextAnchor.MiddleLeft);
             }
-            float listTop = top - 165f;
+            float listTop = top - 155f;
             if (rows.Count == 0)
                 Label(panel, tab == 2 ? "No /help: the LunarLink.Api module isn't running" : hidden > 0 ? "Only LunarLink's modules are in BepInEx/hot/ (tick the box to see them)" : bepTab ? "No plugins" : "No DLLs in BepInEx/hot/",
                     new Vector2(0, listTop - RowH / 2), new Vector2(W - 60, RowH), 22, Dim, TextAnchor.MiddleCenter);
             float y = listTop;
             for (int i = first; i < first + shown; i++) { DrawRow(rows[i], y - RowH / 2); y -= RowH + Gap; }
             if (rows.Count > MaxRows) ScrollBar(listTop, listH - Gap, rows.Count, shown);
-            if (message != null) Label(panel, message, new Vector2(0, -h / 2 + 30), new Vector2(W - 60, 36), 19, Ink, TextAnchor.MiddleLeft);
+            if (message != null) Label(panel, message, new Vector2(-W / 2 + 280, -h / 2 + 30), new Vector2(520, 36), 19, Ink, TextAnchor.MiddleLeft);
+        }
+
+        static void EnsureNewUiCanvas()
+        {
+            string stage = "checking existing canvas";
+            try
+            {
+                // A hot reload can leave the Unity object reference alive for one
+                // frame after the managed Canvas field has been torn down. Rebuild
+                // the pair instead of returning with a null canvas.
+                if (newUiCanvasObject != null && newUiCanvas != null && newUiRay != null) return;
+                if (newUiCanvasObject != null) UnityEngine.Object.Destroy(newUiCanvasObject);
+                newUiCanvasObject = null; newUiCanvas = null; newUiRay = null;
+                stage = "creating canvas object";
+                newUiCanvasObject = new GameObject("LunarLink Quantum UI Canvas");
+                UnityEngine.Object.DontDestroyOnLoad(newUiCanvasObject);
+                stage = "adding Canvas";
+                newUiCanvas = newUiCanvasObject.AddComponent<Canvas>();
+                if (newUiCanvas == null) throw new InvalidOperationException("AddComponent<Canvas>() returned null");
+                newUiCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+                newUiCanvas.sortingOrder = 31001;
+                stage = "adding CanvasScaler";
+                var scaler = newUiCanvasObject.AddComponent<CanvasScaler>();
+                // These are Quantum Conveyors' exact CanvasScaler settings: it sets only
+                // ScaleWithScreenSize and leaves the default 800x600 reference settings.
+                scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+                stage = "adding GraphicRaycaster";
+                newUiRay = newUiCanvasObject.AddComponent<GraphicRaycaster>();
+            }
+            catch (Exception e)
+            {
+                Plugin.L.LogError("new UI canvas setup failed at " + stage + ": " + e);
+                newUiCanvasObject = null; newUiCanvas = null; newUiRay = null;
+            }
+        }
+
+        // The card is sized like Lunar Link's old window. The contents use Quantum's
+        // own CanvasScaler and original 640x600/0.54 layout, so text and sprites render
+        // at their native UI size instead of being enlarged after rendering.
+        static void DrawNewUiPane()
+        {
+            EnsureNewUiCanvas();
+            if (layer == null || newUiCanvas == null || newUiRay == null)
+            {
+                Plugin.L.LogError("new UI could not create its canvas");
+                return;
+            }
+            ray = newUiRay;
+            Canvas.ForceUpdateCanvases();
+            var oldCanvas = layer.GetComponent<Canvas>();
+            float oldScale = oldCanvas == null || oldCanvas.scaleFactor <= 0 ? 1f : oldCanvas.scaleFactor;
+            float qcScale = newUiCanvas.scaleFactor <= 0 ? 1f : newUiCanvas.scaleFactor;
+            float oldPaneH = Head + 190f + MaxRows * (RowH + Gap) + 30f;
+            float paneW = W * oldScale / qcScale, paneH = oldPaneH * oldScale / qcScale;
+            panel = Rect("New UI Pane", newUiCanvas.transform, new Vector2(paneW, paneH), Vector2.zero, Panel);
+            panel.gameObject.AddComponent<CanvasGroup>().blocksRaycasts = true;
+            float controlScale = oldScale / qcScale;
+            UiVersionToggle(panel, paneW, paneH, controlScale);
+            NewUiButton(panel, "×", new Vector2(paneW / 2 - 34 * controlScale, paneH / 2 - 36 * controlScale),
+                new Vector2(52 * controlScale, 50 * controlScale), false, Close, Mathf.Max(8, Mathf.RoundToInt(34 * controlScale)));
+            var quantumLayout = Rect("Quantum Menu Layout", panel, new Vector2(640, 600), Vector2.zero, null);
+            quantumLayout.localScale = new Vector3(0.54f, 0.54f, 1f);
+            Label(quantumLayout, "Lunar Link", new Vector2(0, 250), new Vector2(620, 42), 26, Ink, TextAnchor.MiddleCenter);
+            Help(quantumLayout, new Vector2(180, 250), "<b>Lunar Link</b> keeps this workspace open while we replace the old manager screen.\n\nThe folder and channel rows below are a visual starting point based on Quantum Conveyors.\n\nHot reload usually applies hot-module settings. Some settings are read only during game startup and still require a full restart.", new Vector2(560, 248), new Vector2(0, 40));
+            const float tabWidth = 126f, tabGap = 10f;
+            float tabStart = -(tabWidth * 4f + tabGap * 3f) / 2f + tabWidth / 2f;
+            var linkTab = NewUiButton(quantumLayout, "Link Plugins", new Vector2(tabStart, 168), new Vector2(tabWidth, 40), newUiTab == 0,
+                () => { newUiTab = 0; Draw(true); }, 14);
+            var otherTab = NewUiButton(quantumLayout, "Other Plugins", new Vector2(tabStart + tabWidth + tabGap, 168), new Vector2(tabWidth, 40), newUiTab == 1,
+                () => { newUiTab = 1; Draw(true); }, 14);
+            var apiTab = NewUiButton(quantumLayout, "API", new Vector2(tabStart + (tabWidth + tabGap) * 2f, 168), new Vector2(tabWidth, 40), newUiTab == 2,
+                () => { newUiTab = 2; Draw(true); }, 14);
+            var updatesTab = NewUiButton(quantumLayout, "Updates", new Vector2(tabStart + (tabWidth + tabGap) * 3f, 168), new Vector2(tabWidth, 40), newUiTab == 3, null, 14);
+            newUiTabImages[0] = linkTab.GetComponent<Image>(); newUiTabTexts[0] = linkTab.GetComponentInChildren<UnityEngine.UI.Text>();
+            newUiTabImages[1] = otherTab.GetComponent<Image>(); newUiTabTexts[1] = otherTab.GetComponentInChildren<UnityEngine.UI.Text>();
+            newUiTabImages[2] = apiTab.GetComponent<Image>(); newUiTabTexts[2] = apiTab.GetComponentInChildren<UnityEngine.UI.Text>();
+            newUiTabImages[3] = updatesTab.GetComponent<Image>(); newUiTabTexts[3] = updatesTab.GetComponentInChildren<UnityEngine.UI.Text>();
+
+            newUiViewport = Rect("Channel Viewport", quantumLayout, new Vector2(620, 330), new Vector2(0, -26.5f), Panel);
+            newUiViewport.gameObject.AddComponent<Mask>().showMaskGraphic = true;
+            newUiContent = Rect("Channel Content", newUiViewport, new Vector2(600, 44), Vector2.zero, null);
+            newUiContent.anchorMin = newUiContent.anchorMax = newUiContent.pivot = new Vector2(0.5f, 1f);
+            newUiTransition = Rect("Channel Transition", newUiViewport, new Vector2(600, 44), Vector2.zero, null);
+            newUiTransition.anchorMin = newUiTransition.anchorMax = newUiTransition.pivot = new Vector2(0.5f, 1f);
+            newUiTransition.SetSiblingIndex(newUiContent.GetSiblingIndex());
+            newUiTransitionGroup = newUiTransition.gameObject.AddComponent<CanvasGroup>();
+            newUiTransitionGroup.blocksRaycasts = false; newUiTransitionGroup.interactable = false;
+            newUiTopFade = NewUiFade(newUiViewport, true, new Vector2(0, 159));
+            newUiBottomFade = NewUiFade(newUiViewport, false, new Vector2(0, -159));
+
+            var footer = Rect("Lunar Link Modules Panel", quantumLayout, new Vector2(580, 44), new Vector2(0, -220), Panel);
+            newUiFooterObject = footer.gameObject;
+            NewUiLabel(footer, "Native Lunar Link Modules", new Vector2(-60, 0), new Vector2(260, 30), 18, Ink, TextAnchor.MiddleLeft);
+            var moduleButton = NewUiButton(footer, (ShowModules?.Value ?? false) ? "Hide" : "Show", new Vector2(125, 0), new Vector2(110, 34), ShowModules?.Value ?? false,
+                () => { if (ShowModules != null) ShowModules.Value = !ShowModules.Value; SaveWindowSettings(); Draw(true); }, 16);
+            newUiModuleButtonText = moduleButton.GetComponentInChildren<UnityEngine.UI.Text>();
+            newUiModuleButtonImage = moduleButton.GetComponent<Image>();
+            var keyRow = Rect("Lunar Link Menu Key Panel", quantumLayout, new Vector2(580, 44), new Vector2(0, -272), Panel);
+            newUiKeyRowObject = keyRow.gameObject;
+            NewUiLabel(keyRow, "Lunar Link Keybind", new Vector2(-60, 0), new Vector2(260, 30), 18, Ink, TextAnchor.MiddleLeft);
+            // Keep this as a focused key-capture field rather than adding Unity's
+            // editable InputField component.  The menu already captures the next
+            // keyboard control in CaptureNewUiKey(), and InputField's internal
+            // navigation setup is not safe across LunarLink hot reloads.
+            NewUiKeyField(keyRow, KeySetting?.Value ?? "F9", new Vector2(125, 0), new Vector2(110, 34));
+            newUiRestartButton = NewUiButton(quantumLayout, "Restart & Apply", new Vector2(0, -250), new Vector2(190, 38), true, RestartNewUiGame, 16);
+            newUiRestartButtonText = newUiRestartButton.GetComponentInChildren<UnityEngine.UI.Text>();
+            newUiRestartButton.gameObject.SetActive(false);
+            var toast = Rect("New UI Settings Toast", panel, new Vector2(720f * controlScale, 34f * controlScale),
+                new Vector2(0, -paneH / 2f + 28f * controlScale), Btn);
+            var toastImage = toast.GetComponent<Image>(); toastImage.sprite = pill; toastImage.type = Image.Type.Simple;
+            newUiToastText = NewUiLabel(toast, "", Vector2.zero, new Vector2(704f * controlScale, 30f * controlScale),
+                Mathf.Max(8, Mathf.RoundToInt(13f * controlScale)), Text, TextAnchor.MiddleCenter);
+            newUiToastText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            toast.gameObject.SetActive(false);
+            RefreshNewUiContent();
+        }
+
+        static void LoadNewUiData()
+        {
+            newUiGroups.Clear(); newUiChannels.Clear();
+            try
+            {
+                var q = new System.Collections.Specialized.NameValueCollection();
+                using (var d = System.Text.Json.JsonDocument.Parse(Hot.Http("GET", "/quantum/groups", q, null)))
+                    newUiGroups.AddRange(d.RootElement.GetProperty("groups").EnumerateArray().Select(x => x.Clone()));
+                using (var d = System.Text.Json.JsonDocument.Parse(Hot.Http("GET", "/quantum/channels", q, null)))
+                    newUiChannels.AddRange(d.RootElement.GetProperty("channels").EnumerateArray().Select(x => x.Clone()));
+                using (var d = System.Text.Json.JsonDocument.Parse(Hot.Http("GET", "/quantum", q, null)))
+                    newUiAutoGroup = d.RootElement.TryGetProperty("autoGroup", out var auto) && auto.ValueKind == System.Text.Json.JsonValueKind.True;
+            }
+            catch { }
+        }
+
+        static void RefreshNewUiContent()
+        {
+            if (newUiContent == null || newUiViewport == null) return;
+            UpdateNewUiTabVisuals();
+            if (newUiRestartButton != null)
+            {
+                bool restartRequired = newUiTab == 1
+                    && (PluginSettings.PendingNormal || BepPlugins.List().Any(e => e.State != null && e.State.Contains("next start")));
+                newUiRestartButton.gameObject.SetActive(restartRequired);
+            }
+            bool showModules = ShowModules?.Value ?? false;
+            if (newUiModuleButtonText != null)
+            {
+                newUiModuleButtonText.text = showModules ? "Hide" : "Show";
+                newUiModuleButtonText.color = showModules ? Ink : Text;
+            }
+            if (newUiModuleButtonImage != null) newUiModuleButtonImage.color = showModules ? Accent : Btn;
+            float previousScroll = newUiScroll;
+            float previousTarget = newUiScrollTarget;
+            float previousMaxScroll = Mathf.Max(0f, newUiContent.rect.height - newUiViewport.rect.height);
+            bool animateTransition = newUiAnimateNext || newUiQueuedGradientRows.Count > 0;
+            Dictionary<string, Vector2> previousPositions = null;
+            Dictionary<string, RectTransform> previousRows = null;
+            for (int i = newUiTransition.childCount - 1; i >= 0; i--) UnityEngine.Object.DestroyImmediate(newUiTransition.GetChild(i).gameObject);
+            newUiTransitionUntil = 0f; newUiTransitionFadeDuration = 0.22f; newUiTransitionRemoveOnly = false; newUiTransitionGroup.alpha = 1f;
+            if (animateTransition)
+            {
+                previousPositions = new Dictionary<string, Vector2>(StringComparer.Ordinal);
+                previousRows = new Dictionary<string, RectTransform>(StringComparer.Ordinal);
+                foreach (var old in newUiLiveRows)
+                {
+                    if (old.Value == null) continue;
+                    previousPositions[old.Key] = old.Value.anchoredPosition;
+                    previousRows[old.Key] = old.Value;
+                    old.Value.SetParent(newUiTransition, false);
+                }
+                newUiTransition.sizeDelta = newUiContent.sizeDelta;
+                for (int i = newUiContent.childCount - 1; i >= 0; i--) newUiContent.GetChild(i).SetParent(newUiTransition, false);
+                newUiTransition.anchoredPosition = newUiContent.anchoredPosition;
+            }
+            else
+            {
+                for (int i = newUiContent.childCount - 1; i >= 0; i--) UnityEngine.Object.Destroy(newUiContent.GetChild(i).gameObject);
+            }
+            newUiLiveRows.Clear();
+            newUiRowTweens.Clear(); newUiArrowTweens.Clear(); newUiRow = 0;
+            if (newUiTab == 1)
+            {
+                foreach (var e in BepPlugins.List()) AddNewUiBepPlugin(e);
+            }
+            else if (newUiTab == 0)
+            {
+                foreach (var r in Hot.Rows().Where(Show)) AddNewUiModule(r);
+            }
+            else if (newUiTab == 2)
+            {
+                foreach (var e in Endpoints()) AddNewUiApiEndpoint(e);
+            }
+            newUiContent.sizeDelta = new Vector2(600, Math.Max(44f, newUiRow * 52f));
+            float maxScroll = Mathf.Max(0f, newUiContent.rect.height - newUiViewport.rect.height);
+            float targetScroll = Mathf.Clamp(previousTarget, 0f, maxScroll);
+            if (newUiAnimateNext && maxScroll > previousMaxScroll && previousTarget >= previousMaxScroll - 1f)
+                targetScroll = maxScroll;
+            newUiScrollTarget = targetScroll;
+            if (newUiAnimateNext && Mathf.Abs(previousScroll - targetScroll) > 0.01f)
+            {
+                newUiScrollAnimationFrom = previousScroll;
+                newUiScrollAnimationTo = targetScroll;
+                newUiScrollAnimationUntil = Time.unscaledTime + 0.22f;
+                newUiScroll = previousScroll;
+                newUiScrollVelocity = 0f;
+            }
+            else
+            {
+                newUiScrollAnimationUntil = 0f;
+                newUiScroll = Mathf.Clamp(previousScroll, 0f, maxScroll);
+                newUiScrollVelocity = 0f;
+            }
+            newUiContent.anchoredPosition = new Vector2(0, newUiScroll); UpdateNewUiFades();
+            newUiTransition.anchoredPosition = new Vector2(0, newUiScroll);
+            if (animateTransition)
+            {
+                foreach (var current in newUiLiveRows)
+                {
+                    var to = current.Value.anchoredPosition;
+                    var from = newUiAnimateNext ? to + new Vector2(0, 16f) : to;
+                    bool isNew = previousPositions == null || !previousPositions.ContainsKey(current.Key);
+                    if (previousPositions != null && previousPositions.TryGetValue(current.Key, out var oldPosition)) from = oldPosition;
+                    CanvasGroup fadeGroup = null;
+                    bool gradientFade = newUiQueuedGradientRows.Contains(current.Key);
+                    if (gradientFade)
+                    {
+                        var gradient = NewUiGradientImage(current.Value);
+                        if (gradient != null)
+                        {
+                            var color = gradient.color; color.a = 0f; gradient.color = color;
+                            var now = Time.unscaledTime;
+                            if (newUiQueuedReloadRows.Contains(current.Key))
+                            {
+                                var greyStage = NewUiGreyStageImage(current.Value, gradient);
+                                if (greyStage != null)
+                                {
+                                    newUiImageTweens.Add(new UiImageTween { Image = greyStage, From = 0f, To = 1f, Start = now + 0.11f, Until = now + 0.22f });
+                                    newUiImageTweens.Add(new UiImageTween { Image = greyStage, From = 1f, To = 0f, Start = now + 0.22f, Until = now + 0.33f });
+                                }
+                                newUiImageTweens.Add(new UiImageTween { Image = gradient, From = 0f, To = 1f, Start = now + 0.33f, Until = now + 0.44f });
+                            }
+                            else
+                            {
+                                newUiImageTweens.Add(new UiImageTween { Image = gradient, From = 0f, To = 1f, Start = now + 0.11f, Until = now + 0.22f });
+                            }
+                        }
+                    }
+                    else if (isNew && (current.Key.EndsWith(":actions", StringComparison.Ordinal) || current.Key.Contains(":setting:", StringComparison.Ordinal)))
+                    {
+                        fadeGroup = current.Value.gameObject.AddComponent<CanvasGroup>();
+                        fadeGroup.alpha = 0f;
+                    }
+                    if ((from - to).sqrMagnitude > 0.01f || fadeGroup != null)
+                    {
+                        current.Value.anchoredPosition = from;
+                        float now = Time.unscaledTime;
+                        float fadeStart = gradientFade ? now + 0.11f : now;
+                        newUiRowTweens.Add(new UiRowTween { Row = current.Value, From = from, To = to, FadeGroup = fadeGroup, FadeFrom = 0f, FadeTo = 1f,
+                            FadeStart = fadeStart, FadeUntil = now + 0.22f, Until = now + 0.22f });
+                    }
+                }
+                bool hasClosingRows = false;
+                if (previousRows != null)
+                {
+                    foreach (var old in previousRows)
+                    {
+                        if (newUiLiveRows.ContainsKey(old.Key))
+                        {
+                            if (newUiQueuedGradientRows.Contains(old.Key))
+                            {
+                                var gradient = NewUiGradientImage(old.Value);
+                                if (gradient != null)
+                                {
+                                    var color = gradient.color; color.a = 1f; gradient.color = color;
+                                    var now = Time.unscaledTime;
+                                    newUiImageTweens.Add(new UiImageTween { Image = gradient, From = 1f, To = 0f, Start = now, Until = now + 0.11f });
+                                }
+                                hasClosingRows = true;
+                                continue;
+                            }
+                            UnityEngine.Object.DestroyImmediate(old.Value.gameObject);
+                            continue;
+                        }
+                        var target = old.Value.anchoredPosition;
+                        if (old.Key.EndsWith(":actions", StringComparison.Ordinal) && newUiLiveRows.TryGetValue(old.Key.Substring(0, old.Key.Length - ":actions".Length), out var parentRow))
+                            target = parentRow.anchoredPosition;
+                        else if (old.Key.Contains(":setting:", StringComparison.Ordinal))
+                        {
+                            var cut = old.Key.IndexOf(":setting:", StringComparison.Ordinal);
+                            if (cut > 0 && newUiLiveRows.TryGetValue(old.Key.Substring(0, cut), out parentRow)) target = parentRow.anchoredPosition;
+                        }
+                        if ((old.Value.anchoredPosition - target).sqrMagnitude > 0.01f)
+                            newUiRowTweens.Add(new UiRowTween { Row = old.Value, From = old.Value.anchoredPosition, To = target, Until = Time.unscaledTime + 0.22f });
+                        hasClosingRows = true;
+                    }
+                }
+                if (hasClosingRows)
+                {
+                    if (!newUiAnimateNext && newUiQueuedGradientRows.Count > 0)
+                    {
+                        newUiTransitionRemoveOnly = true;
+                        newUiTransitionUntil = Time.unscaledTime + 0.11f;
+                    }
+                    else
+                    {
+                        newUiTransitionFadeDuration = 0.22f;
+                        newUiTransitionUntil = Time.unscaledTime + newUiTransitionFadeDuration;
+                    }
+                }
+            }
+            newUiAnimateNext = false; newUiQueuedArrowAnimations.Clear(); newUiQueuedGradientRows.Clear(); newUiQueuedReloadRows.Clear();
+        }
+
+        static void UpdateNewUiTabVisuals()
+        {
+            for (int i = 0; i < 4; i++)
+            {
+                bool selected = newUiTab == i;
+                if (newUiTabImages[i] != null) newUiTabImages[i].color = selected ? Accent : Btn;
+                if (newUiTabTexts[i] != null) newUiTabTexts[i].color = selected ? Ink : Text;
+            }
+            bool showFooter = newUiTab == 0;
+            if (newUiFooterObject != null) newUiFooterObject.SetActive(showFooter);
+            if (newUiKeyRowObject != null) newUiKeyRowObject.SetActive(showFooter);
+        }
+
+        static void AddNewUiModule(Hot.Row r)
+        {
+            bool disabled = r.State == "disabled";
+            string display = DisplayNames.For(r.Name);
+            string state = r.State == "running" || r.State == "disabled" ? "" : r.State;
+            string detail = r.Error != null ? "<color=#E6524A>" + Short(r.Error) + "</color>"
+                : (r.Newer ? "<color=#FF7A2E>newer build on disk</color>" : "")
+                    + (r.NeedsRestart ? "   restart to register buildings" : "");
+            bool open = newUiOpenModules.Contains(r.Name);
+            string arrowKey = "m:" + r.Name;
+            Action toggle = () =>
+            {
+                if (open)
+                {
+                    newUiOpenModules.Remove(r.Name);
+                    StartNewUiArrow(arrowKey, false);
+                }
+                else
+                {
+                    foreach (var previous in newUiOpenModules.ToList())
+                    {
+                        newUiOpenModules.Remove(previous);
+                        StartNewUiArrow("m:" + previous, false);
+                    }
+                    newUiOpenModules.Add(r.Name);
+                    StartNewUiArrow(arrowKey, true);
+                }
+                Draw(true);
+            };
+            var rowKey = "m:" + r.Name;
+            var row = NewUiRow(newUiContent, newUiRow++, 52f, false, disabled, false);
+            newUiLiveRows[rowKey] = row;
+            var rowButton = row.gameObject.AddComponent<UnityEngine.UI.Button>();
+            rowButton.targetGraphic = row.GetComponent<Image>();
+            actions[row.gameObject.GetInstanceID()] = toggle;
+            var titleColor = r.State == "failed" ? Red : disabled ? new Color(Ink.r, Ink.g, Ink.b, 0.8f) : Ink;
+            var title = NewUiLabel(row, display + (string.IsNullOrEmpty(state) ? "" : "  " + state),
+                new Vector2(-120, string.IsNullOrEmpty(detail) ? 0 : 10), new Vector2(270, 24), 15, titleColor, TextAnchor.MiddleLeft);
+            title.horizontalOverflow = HorizontalWrapMode.Overflow;
+            if (!string.IsNullOrEmpty(detail))
+            {
+                var detailText = NewUiLabel(row, detail, new Vector2(-120, -12), new Vector2(300, 22), 13, Dim, TextAnchor.MiddleLeft);
+                detailText.supportRichText = true;
+            }
+            var arrow = NewUiButton(row, "▶", new Vector2(264, 0), new Vector2(48, 34), true, toggle, 8);
+            var arrowText = arrow.GetComponentInChildren<UnityEngine.UI.Text>();
+            if (arrowText != null)
+            {
+                float target = open ? -90f : 0f, from = target;
+                if (newUiAnimateNext && newUiQueuedArrowAnimations.TryGetValue(arrowKey, out var animation)) from = animation.From;
+                arrowText.rectTransform.localRotation = Quaternion.Euler(0, 0, from);
+                if (newUiAnimateNext && newUiQueuedArrowAnimations.TryGetValue(arrowKey, out animation))
+                    newUiArrowTweens.Add(new UiArrowTween { Arrow = arrowText.rectTransform, From = animation.From, To = animation.To, Until = Time.unscaledTime + 0.22f });
+            }
+            if (!open) return;
+
+            var actionsRow = NewUiRow(newUiContent, newUiRow++, 52f, true, false, false);
+            // Keep the expanding dropdown behind its module header.  The
+            // collapse transition already lives in the lower transition layer;
+            // matching that sibling order prevents the new row from drawing over
+            // the header while it slides into place.
+            actionsRow.SetSiblingIndex(row.GetSiblingIndex());
+            newUiLiveRows[rowKey + ":actions"] = actionsRow;
+            var version = ModuleVersion(r.Name);
+            NewUiLabel(actionsRow, version != null ? "version " + version : disabled ? "Enable this module" : "Module actions",
+                new Vector2(-120, 0), new Vector2(230, 34), 14, Dim, TextAnchor.MiddleLeft);
+            string moduleName = r.Name;
+            const float arrowCenter = 264f, arrowWidth = 48f, buttonGap = 8f, disableWidth = 86f, reloadWidth = 84f;
+            const float actionRight = arrowCenter + arrowWidth / 2f;
+            float reloadX = actionRight - reloadWidth / 2f;
+            float disableX = actionRight - reloadWidth - buttonGap - disableWidth / 2f;
+            NewUiButton(actionsRow, disabled ? "Enable" : "Disable", new Vector2(disableX, 0), new Vector2(disableWidth, 34), disabled,
+                () => Act(() =>
+                {
+                    QueueNewUiGradient(moduleName, false);
+                    var result = disabled ? Hot.Enable(moduleName, reload: false) : Hot.Disable(moduleName);
+                    if (disabled && result != null && result.Error == null) PluginSettings.MarkHotApplied(moduleName);
+                    return Done(result, disabled ? "Enabled " + display : "Disabled " + display);
+                }), 16);
+            bool applySettings = PluginSettings.HasPendingHot(moduleName);
+            var reloadButton = NewUiButton(actionsRow, applySettings ? "Apply" : "Reload", new Vector2(reloadX, 0), new Vector2(reloadWidth, 34), applySettings,
+                () => Act(() =>
+                {
+                    QueueNewUiGradient(moduleName, true);
+                    var result = Hot.Enable(moduleName, reload: true);
+                    if (result != null && result.Error == null && applySettings)
+                    {
+                        PluginSettings.MarkHotApplied(moduleName);
+                        newUiShowSettingsToastNext = true;
+                    }
+                    return Done(result, applySettings ? "Applied settings for " + display : "Reloaded " + display);
+                }), 16, !disabled);
+            if (disabled)
+            {
+                var reloadControl = reloadButton.GetComponent<UnityEngine.UI.Button>();
+                if (reloadControl != null) reloadControl.interactable = false;
+                var disabledGroup = reloadButton.gameObject.AddComponent<CanvasGroup>();
+                disabledGroup.alpha = 0.45f; disabledGroup.interactable = false; disabledGroup.blocksRaycasts = false;
+                actions.Remove(reloadButton.gameObject.GetInstanceID());
+            }
+            AddNewUiSettings(rowKey, row, PluginSettings.For(r.Name, null, r.Name + ".dll", true));
+        }
+
+        static void AddNewUiSettings(string rowKey, RectTransform parentRow, List<PluginSettings.Entry> settings)
+        {
+            if (settings == null || settings.Count == 0) return;
+            var index = 0;
+            foreach (var setting in settings)
+            {
+                var settingRow = NewUiRow(newUiContent, newUiRow++, 52f, true, false, false);
+                // Every expanded row belongs behind the plugin header, including
+                // the individual setting rows.  This preserves the QC reveal.
+                settingRow.SetSiblingIndex(parentRow.GetSiblingIndex());
+                var key = rowKey + ":setting:" + index++;
+                newUiLiveRows[key] = settingRow;
+                AddNewUiSetting(settingRow, setting);
+            }
+        }
+
+        static void AddNewUiSetting(RectTransform row, PluginSettings.Entry setting)
+        {
+            var section = string.IsNullOrEmpty(setting.Section) || setting.Section.Equals("General", StringComparison.OrdinalIgnoreCase)
+                ? "" : setting.Section + " / ";
+            var title = NewUiLabel(row, section + setting.Key, new Vector2(-120, string.IsNullOrEmpty(setting.Description) ? 0 : 10),
+                new Vector2(300, 24), 14, Ink, TextAnchor.MiddleLeft);
+            title.horizontalOverflow = HorizontalWrapMode.Overflow;
+            if (!string.IsNullOrEmpty(setting.Description))
+            {
+                var description = NewUiLabel(row, ShortSetting(setting.Description), new Vector2(-120, -12), new Vector2(320, 20), 11, Dim, TextAnchor.MiddleLeft);
+                description.horizontalOverflow = HorizontalWrapMode.Overflow;
+            }
+
+            var value = SettingDisplayValue(setting);
+            const float settingWidth = 150f;
+            const float arrowRight = 264f + 48f / 2f;
+            var button = NewUiButton(row, value, new Vector2(arrowRight - settingWidth / 2f, 0), new Vector2(settingWidth, 34), false,
+                () => ChangeNewUiSetting(setting), 13);
+            var text = button.GetComponentInChildren<UnityEngine.UI.Text>();
+            if (newUiCapturingSetting && newUiEditingSetting != null && newUiEditingSetting.Id == setting.Id)
+            {
+                newUiSettingInputText = text;
+                UpdateNewUiSettingInput();
+            }
+        }
+
+        static string ShortSetting(string text)
+        {
+            text = (text ?? "").Replace("\r", " ").Replace("\n", " ").Trim();
+            return text.Length > 54 ? text.Substring(0, 54) + "…" : text;
+        }
+
+        static string SettingDisplayValue(PluginSettings.Entry setting)
+        {
+            if (newUiCapturingSetting && newUiEditingSetting != null && newUiEditingSetting.Id == setting.Id)
+                return (newUiSettingDraft ?? "") + "  |  Enter = save";
+            return setting.Type == PluginSettings.Kind.Toggle
+                ? (setting.Value.Equals("true", StringComparison.OrdinalIgnoreCase) ? "On" : "Off")
+                : (setting.Value ?? "").Length > 22 ? setting.Value.Substring(0, 22) + "…" : (setting.Value ?? "");
+        }
+
+        static void ChangeNewUiSetting(PluginSettings.Entry setting)
+        {
+            if (setting.Type == PluginSettings.Kind.Toggle)
+            {
+                Act(() => PluginSettings.Toggle(setting));
+                return;
+            }
+            if (setting.Type == PluginSettings.Kind.Choice)
+            {
+                Act(() => PluginSettings.Next(setting));
+                return;
+            }
+            BeginNewUiSettingEdit(setting);
+        }
+
+        // Other Plugins uses the same row/dropdown renderer as Link Plugins.
+        // Its contents and actions intentionally come from the old BepInEx
+        // plugins tab, so the new tab changes presentation only.
+        static void AddNewUiBepPlugin(BepPlugins.Entry e)
+        {
+            bool disabled = e.State == "off" || e.State == "off from next start";
+            bool ordinary = e.State == "running" || e.State == "off" || e.State == "off from next start";
+            string display = DisplayNames.For(e.Name);
+            string state = ordinary || e.State == "on from next start" ? "" : e.State;
+            string detail = e.NeededBy.Count > 0 ? "needed by " + string.Join(", ", e.NeededBy.Select(DisplayNames.For)) : "";
+
+            string key = e.File;
+            string arrowKey = "b:" + key;
+            bool open = newUiOpenBepPlugins.Contains(key);
+            Action toggle = () =>
+            {
+                if (open)
+                {
+                    newUiOpenBepPlugins.Remove(key);
+                    StartNewUiArrow(arrowKey, false);
+                }
+                else
+                {
+                    foreach (var previous in newUiOpenBepPlugins.ToList())
+                    {
+                        newUiOpenBepPlugins.Remove(previous);
+                        StartNewUiArrow("b:" + previous, false);
+                    }
+                    newUiOpenBepPlugins.Add(key);
+                    StartNewUiArrow(arrowKey, true);
+                }
+                Draw(true);
+            };
+
+            var rowKey = "b:" + key;
+            var row = NewUiRow(newUiContent, newUiRow++, 52f, false, disabled, false);
+            newUiLiveRows[rowKey] = row;
+            var rowButton = row.gameObject.AddComponent<UnityEngine.UI.Button>();
+            rowButton.targetGraphic = row.GetComponent<Image>();
+            actions[row.gameObject.GetInstanceID()] = toggle;
+
+            var titleColor = e.State == "file gone" ? Red : disabled ? new Color(Ink.r, Ink.g, Ink.b, 0.8f) : Ink;
+            var title = NewUiLabel(row, display + (e.Version == null ? "" : "  " + e.Version) + (string.IsNullOrEmpty(state) ? "" : "  " + state)
+                    + (e.Self ? "   (runs this window)" : ""),
+                new Vector2(-120, string.IsNullOrEmpty(detail) ? 0 : 10), new Vector2(270, 24), 15, titleColor, TextAnchor.MiddleLeft);
+            title.horizontalOverflow = HorizontalWrapMode.Overflow;
+            if (!string.IsNullOrEmpty(detail))
+            {
+                var detailText = NewUiLabel(row, detail, new Vector2(-120, -12), new Vector2(400, 22), 13, Dim, TextAnchor.MiddleLeft);
+                detailText.supportRichText = true;
+            }
+
+            var arrow = NewUiButton(row, "▶", new Vector2(264, 0), new Vector2(48, 34), true, toggle, 8);
+            var arrowText = arrow.GetComponentInChildren<UnityEngine.UI.Text>();
+            if (arrowText != null)
+            {
+                float target = open ? -90f : 0f, from = target;
+                if (newUiAnimateNext && newUiQueuedArrowAnimations.TryGetValue(arrowKey, out var animation)) from = animation.From;
+                arrowText.rectTransform.localRotation = Quaternion.Euler(0, 0, from);
+                if (newUiAnimateNext && newUiQueuedArrowAnimations.TryGetValue(arrowKey, out animation))
+                    newUiArrowTweens.Add(new UiArrowTween { Arrow = arrowText.rectTransform, From = animation.From, To = animation.To, Until = Time.unscaledTime + 0.22f });
+            }
+            if (!open) return;
+
+            var actionsRow = NewUiRow(newUiContent, newUiRow++, 52f, true, false, false);
+            actionsRow.SetSiblingIndex(row.GetSiblingIndex());
+            newUiLiveRows[rowKey + ":actions"] = actionsRow;
+            var fileLabel = NewUiLabel(actionsRow, e.File, new Vector2(-120, 0), new Vector2(230, 34), 14, Dim, TextAnchor.MiddleLeft);
+            fileLabel.horizontalOverflow = HorizontalWrapMode.Overflow;
+
+            const float arrowCenter = 264f, arrowWidth = 48f, disableWidth = 86f;
+            const float actionRight = arrowCenter + arrowWidth / 2f;
+            float disableX = actionRight - disableWidth / 2f;
+            if (!e.Self && e.State == "running")
+            {
+                string file = e.File;
+                NewUiButton(actionsRow, "Disable", new Vector2(disableX, 0), new Vector2(disableWidth, 34), false,
+                    () => Act(() =>
+                    {
+                        QueueNewUiGradientKey(rowKey, false);
+                        return BepPlugins.Disable(file) ?? "Turned off: " + file + ". RESTART THE GAME to apply (it keeps running until then)";
+                    }), 16);
+            }
+            else if (!e.Self && (e.State == "off" || e.State == "off from next start"))
+            {
+                string file = e.File;
+                NewUiButton(actionsRow, "Enable", new Vector2(disableX, 0), new Vector2(disableWidth, 34), true,
+                    () => Act(() =>
+                    {
+                        QueueNewUiGradientKey(rowKey, false);
+                        return BepPlugins.Enable(file) ?? (e.Loaded ? "Turned back on: " + file + ". It never stopped, so no restart is needed" : "Turned on: " + file + ". RESTART THE GAME to apply");
+                    }), 16);
+            }
+            else if (!e.Self && e.State == "on from next start")
+            {
+                string file = e.File;
+                NewUiButton(actionsRow, "Disable", new Vector2(disableX, 0), new Vector2(disableWidth, 34), false,
+                    () => Act(() =>
+                    {
+                        QueueNewUiGradientKey(rowKey, false);
+                        return BepPlugins.Disable(file) ?? "Turned back off: " + file + ". It never loaded, so no restart is needed";
+                    }), 16);
+            }
+            AddNewUiSettings(rowKey, row, PluginSettings.For(e.Name, e.Guid, e.File));
+        }
+
+        static void AddNewUiApiEndpoint((string group, string from, string method, string path, string help) e)
+        {
+            string key = e.group + "|" + e.method + "|" + e.path;
+            string rowKey = "a:" + key;
+            bool open = newUiOpenApiEndpoints.Contains(key);
+            Action toggle = () =>
+            {
+                if (open)
+                {
+                    newUiOpenApiEndpoints.Remove(key);
+                    StartNewUiArrow(rowKey, false);
+                }
+                else
+                {
+                    foreach (var previous in newUiOpenApiEndpoints.ToList())
+                    {
+                        newUiOpenApiEndpoints.Remove(previous);
+                        StartNewUiArrow("a:" + previous, false);
+                    }
+                    newUiOpenApiEndpoints.Add(key);
+                    StartNewUiArrow(rowKey, true);
+                }
+                Draw(true);
+            };
+
+            var row = NewUiRow(newUiContent, newUiRow++, 52f, false, false, false);
+            newUiLiveRows[rowKey] = row;
+            var rowButton = row.gameObject.AddComponent<UnityEngine.UI.Button>();
+            rowButton.targetGraphic = row.GetComponent<Image>();
+            actions[row.gameObject.GetInstanceID()] = toggle;
+
+            var titleColor = e.from == "core" ? Ink : e.from.Contains("plugin") ? Accent : Green;
+            var title = NewUiLabel(row, e.method + " " + e.path, new Vector2(-120, string.IsNullOrEmpty(e.group) ? 0 : 10),
+                new Vector2(270, 24), 15, titleColor, TextAnchor.MiddleLeft);
+            title.horizontalOverflow = HorizontalWrapMode.Overflow;
+            if (!string.IsNullOrEmpty(e.group))
+                NewUiLabel(row, e.group, new Vector2(-120, -12), new Vector2(300, 22), 13, Dim, TextAnchor.MiddleLeft);
+
+            var arrow = NewUiButton(row, "▶", new Vector2(264, 0), new Vector2(48, 34), true, toggle, 8);
+            var arrowText = arrow.GetComponentInChildren<UnityEngine.UI.Text>();
+            if (arrowText != null)
+            {
+                float target = open ? -90f : 0f, from = target;
+                if (newUiAnimateNext && newUiQueuedArrowAnimations.TryGetValue(rowKey, out var animation)) from = animation.From;
+                arrowText.rectTransform.localRotation = Quaternion.Euler(0, 0, from);
+                if (newUiAnimateNext && newUiQueuedArrowAnimations.TryGetValue(rowKey, out animation))
+                    newUiArrowTweens.Add(new UiArrowTween { Arrow = arrowText.rectTransform, From = animation.From, To = animation.To, Until = Time.unscaledTime + 0.22f });
+            }
+            if (!open) return;
+
+            var actionsRow = NewUiRow(newUiContent, newUiRow++, 52f, true, false, false);
+            actionsRow.SetSiblingIndex(row.GetSiblingIndex());
+            newUiLiveRows[rowKey + ":actions"] = actionsRow;
+            var help = NewUiLabel(actionsRow, e.help ?? "No help text supplied", new Vector2(-120, 0), new Vector2(470, 34), 13, Dim, TextAnchor.MiddleLeft);
+            help.horizontalOverflow = HorizontalWrapMode.Overflow;
+            help.supportRichText = true;
+        }
+
+        static void QueueNewUiGradient(string moduleName, bool reload)
+        {
+            QueueNewUiGradientKey("m:" + moduleName, reload);
+        }
+
+        static void QueueNewUiGradientKey(string key, bool reload)
+        {
+            newUiQueuedGradientRows.Add(key);
+            if (reload) newUiQueuedReloadRows.Add(key);
+        }
+
+        static string ModuleVersion(string name)
+        {
+            try
+            {
+                var loaded = Hot.Loaded().FirstOrDefault(x => string.Equals(x.name, name, StringComparison.OrdinalIgnoreCase)).obj;
+                var informational = loaded?.GetType().Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+                var version = NormalizeModuleVersion(informational);
+                if (version != null) return version;
+
+                var file = Path.Combine(BepInEx.Paths.BepInExRootPath, "hot", name + ".dll");
+                var info = FileVersionInfo.GetVersionInfo(file);
+                version = NormalizeModuleVersion(info.ProductVersion);
+                if (version != null) return version;
+                return NormalizeModuleVersion(info.FileVersion);
+            }
+            catch { return null; }
+        }
+
+        static string NormalizeModuleVersion(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+            var value = raw.Trim();
+            var cut = value.IndexOfAny(new[] { '+', ' ', '(' });
+            if (cut > 0) value = value.Substring(0, cut).Trim();
+            if (!System.Version.TryParse(value, out var parsed)) return null;
+            return parsed.ToString(3);
+        }
+
+        static void StartNewUiArrow(string key, bool opening)
+        {
+            if (string.IsNullOrEmpty(key)) return;
+            newUiAnimateNext = true;
+            newUiQueuedArrowAnimations[key] = (opening ? 0f : -90f, opening ? -90f : 0f);
+        }
+
+        static void BeginNewUiKeyCapture()
+        {
+            newUiCapturingKey = true;
+            UpdateNewUiKeyField();
+        }
+
+        static void CaptureNewUiKey(Keyboard kb)
+        {
+            if (kb.escapeKey.wasPressedThisFrame)
+            {
+                newUiCapturingKey = false;
+                UpdateNewUiKeyField();
+                return;
+            }
+            foreach (Key candidate in Enum.GetValues(typeof(Key)))
+            {
+                if (candidate == Key.None) continue;
+                try
+                {
+                    var control = kb.get_Item(candidate);
+                    if (control == null || !control.wasPressedThisFrame) continue;
+                    if (KeySetting != null) KeySetting.Value = candidate.ToString();
+                    SaveWindowSettings();
+                    keyName = null;
+                    newUiCapturingKey = false;
+                    UpdateNewUiKeyField();
+                    return;
+                }
+                catch { }
+            }
+        }
+
+        static void UpdateNewUiKeyField()
+        {
+            if (newUiKeyInputText != null) newUiKeyInputText.text = newUiCapturingKey ? "Press a key" : (KeySetting?.Value ?? "F9");
+            if (newUiKeyInputImage != null) newUiKeyInputImage.color = newUiCapturingKey ? Accent : Btn;
+        }
+
+        static void BeginNewUiSettingEdit(PluginSettings.Entry setting)
+        {
+            if (setting == null) return;
+            newUiEditingSetting = setting;
+            newUiSettingDraft = setting.Value ?? "";
+            newUiCapturingSetting = true;
+            message = "Type a value for " + setting.Key + ". Enter saves; Escape cancels.";
+            Draw(true);
+        }
+
+        static void CaptureNewUiSetting(Keyboard kb)
+        {
+            if (newUiEditingSetting == null) { newUiCapturingSetting = false; return; }
+            foreach (var candidate in Enum.GetValues(typeof(Key)))
+            {
+                var keyValue = (Key)candidate;
+                var name = keyValue.ToString();
+                var control = kb.get_Item(keyValue);
+                if (control == null || !control.wasPressedThisFrame) continue;
+                if (name.Equals("Escape", StringComparison.OrdinalIgnoreCase))
+                {
+                    newUiCapturingSetting = false; newUiEditingSetting = null; newUiSettingDraft = null; Draw(true); return;
+                }
+                if (name.Equals("Enter", StringComparison.OrdinalIgnoreCase) || name.Equals("NumpadEnter", StringComparison.OrdinalIgnoreCase))
+                {
+                    var result = PluginSettings.Set(newUiEditingSetting, newUiSettingDraft);
+                    message = result;
+                    newUiCapturingSetting = false; newUiEditingSetting = null; newUiSettingDraft = null; Draw(true); return;
+                }
+                if (name.Equals("Backspace", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!string.IsNullOrEmpty(newUiSettingDraft)) newUiSettingDraft = newUiSettingDraft.Substring(0, newUiSettingDraft.Length - 1);
+                    UpdateNewUiSettingInput(); return;
+                }
+                var typed = TypedSettingCharacter(name, kb.leftShiftKey.isPressed || kb.rightShiftKey.isPressed);
+                if (typed.HasValue && newUiSettingDraft.Length < 120)
+                {
+                    newUiSettingDraft += typed.Value;
+                    UpdateNewUiSettingInput();
+                }
+                return;
+            }
+        }
+
+        static char? TypedSettingCharacter(string key, bool shift)
+        {
+            if (key.Length == 1 && char.IsLetter(key[0])) return shift ? char.ToUpperInvariant(key[0]) : char.ToLowerInvariant(key[0]);
+            if (key.StartsWith("Alpha", StringComparison.OrdinalIgnoreCase) && key.Length == 6 && char.IsDigit(key[5])) return key[5];
+            if (key.StartsWith("Numpad", StringComparison.OrdinalIgnoreCase) && key.Length == 7 && char.IsDigit(key[6])) return key[6];
+            switch (key)
+            {
+                case "Space": return ' ';
+                case "Period": return '.';
+                case "Comma": return ',';
+                case "Minus": return '-';
+                case "Equals": return shift ? '+' : '=';
+                case "Slash": return '/';
+                case "Backslash": return '\\';
+                case "Semicolon": return shift ? ':' : ';';
+                case "Quote": return shift ? '"' : '\'';
+                case "LeftBracket": return shift ? '{' : '[';
+                case "RightBracket": return shift ? '}' : ']';
+                case "Backquote": return shift ? '~' : '`';
+                default: return null;
+            }
+        }
+
+        static void UpdateNewUiSettingInput()
+        {
+            if (newUiSettingInputText != null) newUiSettingInputText.text = newUiCapturingSetting ? (newUiSettingDraft ?? "") + "  |  Enter = save" : newUiSettingDraft;
+        }
+
+        static void SaveWindowSettings()
+        {
+            try { ShowModules?.ConfigFile?.Save(); }
+            catch (Exception e) { Plugin.L.LogWarning("window settings save skipped: " + e.Message); }
+        }
+
+        static bool BeginNativeGameSave(out string reason)
+        {
+            reason = null;
+            try
+            {
+                var type = typeof(MoonCleaners.MoonPauseMenu);
+                var objects = UnityEngine.Object.FindObjectsOfType(Il2CppType.From(type));
+                if (objects == null || objects.Length == 0)
+                {
+                    // At the title screen there is no active world to save.
+                    if (Api.World == null) return true;
+                    reason = "Moon Sweepers' save menu is not available";
+                    return false;
+                }
+                var menu = Activator.CreateInstance(type, new object[] { objects[0].Pointer });
+                var save = type.GetMethod("SaveGame", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
+                if (save == null) { reason = "Moon Sweepers' native save method was not found"; return false; }
+                save.Invoke(menu, null);
+                return true;
+            }
+            catch (Exception e)
+            {
+                var cause = e is TargetInvocationException && e.InnerException != null ? e.InnerException : e;
+                reason = cause.GetType().Name + ": " + cause.Message;
+                return false;
+            }
+        }
+
+        static void RestartNewUiGame()
+        {
+            if (newUiRestartWaiting) return;
+            if (!BeginNativeGameSave(out var reason))
+            {
+                message = "Restart cancelled: " + reason + ". Restart the game manually if needed.";
+                Plugin.L.LogWarning("window: native save was not started: " + reason);
+                Draw(true);
+                return;
+            }
+            newUiRestartWaiting = true;
+            newUiRestartQuitAt = Time.unscaledTime + 3f;
+            if (newUiRestartButtonText != null) newUiRestartButtonText.text = "Saving...";
+            if (newUiRestartButton != null) actions.Remove(newUiRestartButton.gameObject.GetInstanceID());
+            Plugin.L.LogInfo("window: native game save requested; waiting before restart");
+        }
+
+        static void FinishNewUiRestart()
+        {
+            newUiRestartWaiting = false;
+            // The game is distributed through Steam.  Match the installed Mod
+            // Manager's restart approach: schedule a hidden helper to wait for
+            // this process to exit, then relaunch the same Steam app.
+            const string steamAppId = "5335510"; // Moon Sweepers' Steam app id
+            try
+            {
+                int pid = Process.GetCurrentProcess().Id;
+                string script = "$p=Get-Process -Id " + pid + " -ErrorAction SilentlyContinue; if ($p) { Wait-Process -Id " + pid + " -ErrorAction SilentlyContinue }; Start-Sleep -Seconds 1; Start-Process 'steam://rungameid/" + steamAppId + "'";
+                var start = new ProcessStartInfo
+                {
+                    FileName = "powershell.exe",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden
+                };
+                start.ArgumentList.Add("-NoProfile");
+                start.ArgumentList.Add("-NonInteractive");
+                start.ArgumentList.Add("-WindowStyle");
+                start.ArgumentList.Add("Hidden");
+                start.ArgumentList.Add("-Command");
+                start.ArgumentList.Add(script);
+                Process.Start(start);
+                Plugin.L.LogInfo("window: restarting Moon Sweepers through Steam to apply plugin changes");
+                UnityEngine.Application.Quit();
+            }
+            catch (Exception e)
+            {
+                message = "Could not schedule the restart: " + e.Message + ". Restart the game manually.";
+                Plugin.L.LogWarning("window: restart scheduling failed: " + e);
+                Draw(true);
+            }
+        }
+
+        static void ShowNewUiSettingsToast()
+        {
+            if (newUiToastText == null) return;
+            newUiToastText.text = "Some settings may still require a full game restart to take effect.";
+            newUiToastText.transform.parent.gameObject.SetActive(true);
+            newUiToastUntil = Time.unscaledTime + 4f;
+        }
+
+        static void AddNewUiFolder(string label, string count, int depth, Action toggle, bool groupActions, bool expanded, string arrowKey)
+        {
+            var r = NewUiRow(newUiContent, newUiRow++, 52f, true); NewUiFolder(r, depth);
+            var rowButton = r.gameObject.AddComponent<UnityEngine.UI.Button>();
+            rowButton.targetGraphic = r.GetComponent<Image>();
+            actions[r.gameObject.GetInstanceID()] = toggle;
+            float x = groupActions ? -95 + depth * 14 : -23.5f, width = groupActions ? 320 - depth * 14 : 467;
+            NewUiLabel(r, label + "  <size=13><color=#77736E>" + count + "</color></size>", new Vector2(x, 0), new Vector2(width, 40), 15, Ink, TextAnchor.MiddleLeft).supportRichText = true;
+            if (groupActions) { NewUiButton(r, "Rename", new Vector2(115, 0), new Vector2(86, 34), false); NewUiButton(r, "Delete", new Vector2(205, 0), new Vector2(84, 34), false); }
+            var arrow = NewUiButton(r, "▶", new Vector2(276, 0), new Vector2(48, 34), true, toggle, 8);
+            var text = arrow.GetComponentInChildren<UnityEngine.UI.Text>(); if (text == null) return;
+            float target = expanded ? -90f : 0f, from = target;
+            if (newUiAnimateNext && newUiQueuedArrowAnimations.TryGetValue(arrowKey, out var animation)) from = animation.From;
+            text.rectTransform.localRotation = Quaternion.Euler(0, 0, from);
+            if (newUiAnimateNext && newUiQueuedArrowAnimations.TryGetValue(arrowKey, out animation)) newUiArrowTweens.Add(new UiArrowTween { Arrow = text.rectTransform, From = animation.From, To = animation.To, Until = Time.unscaledTime + 0.22f });
+        }
+
+        static void RenderNewUiGroup(System.Text.Json.JsonElement group, int depth)
+        {
+            string id = group.GetProperty("id").GetString(); bool open = newUiOpenGroups.Contains(id);
+            string count = UiCountPhrase(group.GetProperty("channels").GetInt32(), "channel") + ", " + UiCountPhrase(group.GetProperty("adapters").GetInt32(), "adapter");
+            AddNewUiFolder(group.GetProperty("name").GetString(), count, depth, () => { if (open) newUiOpenGroups.Remove(id); else newUiOpenGroups.Add(id); StartNewUiArrow("g:" + id, !open); Draw(true); }, true, open, "g:" + id);
+            if (!open) return;
+            foreach (var child in newUiGroups.Where(g => g.TryGetProperty("parent", out var p) && p.ValueKind == System.Text.Json.JsonValueKind.String && p.GetString() == id)) RenderNewUiGroup(child, depth + 1);
+            foreach (var channel in newUiChannels.Where(c => c.TryGetProperty("group", out var g) && g.ValueKind == System.Text.Json.JsonValueKind.String && g.GetString() == id)) RenderNewUiChannel(channel, depth + 1, false);
+        }
+
+        static void RenderNewUiChannel(System.Text.Json.JsonElement channel, int depth, bool fullName)
+        {
+            var r = NewUiRow(newUiContent, newUiRow++, 52f, false);
+            string name = fullName || depth == 0 ? channel.GetProperty("name").GetString() : channel.GetProperty("short").GetString();
+            NewUiLabel(r, name + "  <size=13><color=#77736E>(" + channel.GetProperty("outputs").GetInt32() + " in / " + channel.GetProperty("inputs").GetInt32() + " out)</color></size>", new Vector2(-125 + depth * 14, 0), new Vector2(260 - depth * 14, 40), 15, Ink, TextAnchor.MiddleLeft).supportRichText = true;
+            NewUiButton(r, "Assign", new Vector2(22, 0), new Vector2(86, 34), false); NewUiButton(r, "Rename", new Vector2(114, 0), new Vector2(88, 34), false); NewUiButton(r, "Delete", new Vector2(205, 0), new Vector2(84, 34), false);
+        }
+
+        static string UiCountPhrase(int count, string singular) => count + " " + (count == 1 ? singular : singular + "s");
+
+        static RectTransform NewUiRow(Transform parent, int index, float rowH, bool folder, bool muted = false, bool animate = true)
+        {
+            EnsureSprites();
+            var row = Rect("Row", parent, new Vector2(600, 46), new Vector2(0, -index * rowH), Panel);
+            var image = row.GetComponent<Image>(); image.sprite = rounded; image.type = Image.Type.Sliced;
+            var shade = Rect("Row Gradient", row, new Vector2(600, 46), Vector2.zero, null);
+            var g = shade.gameObject.AddComponent<Image>(); g.sprite = muted ? grey : folder ? cool : warm; g.type = Image.Type.Sliced; g.raycastTarget = false;
+            shade.SetAsFirstSibling();
+            row.anchorMin = row.anchorMax = row.pivot = new Vector2(0.5f, 1f); row.anchoredPosition = new Vector2(0, -index * rowH);
+            if (animate && newUiAnimateNext)
+            {
+                var to = row.anchoredPosition; var from = to + new Vector2(0, 16);
+                row.anchoredPosition = from;
+                newUiRowTweens.Add(new UiRowTween { Row = row, From = from, To = to, Until = Time.unscaledTime + 0.22f });
+            }
+            return row;
+        }
+
+        static Image NewUiGradientImage(RectTransform row)
+        {
+            return row == null ? null : row.Find("Row Gradient")?.GetComponent<Image>();
+        }
+
+        static Image NewUiGreyStageImage(RectTransform row, Image gradient)
+        {
+            if (row == null || gradient == null) return null;
+            var overlay = Rect("Reload Grey Stage", row, row.sizeDelta, Vector2.zero, null);
+            overlay.SetSiblingIndex(gradient.transform.GetSiblingIndex() + 1);
+            var image = overlay.gameObject.AddComponent<Image>();
+            image.sprite = grey; image.type = Image.Type.Sliced; image.raycastTarget = false;
+            image.color = new Color(1f, 1f, 1f, 0f);
+            return image;
+        }
+
+        static void NewUiFolder(Transform parent, int depth)
+        {
+            EnsureSprites();
+            var r = Rect("Folder Icon", parent, new Vector2(22, 22), new Vector2(-270 + depth * 14, 0), null);
+            var image = r.gameObject.AddComponent<Image>(); image.sprite = newUiFolderIcon; image.preserveAspect = true; image.raycastTarget = false;
+        }
+
+        static UnityEngine.UI.Text NewUiLabel(Transform parent, string value, Vector2 pos, Vector2 size, int fontSize, Color color, TextAnchor align)
+        {
+            var text = Label(parent, value, pos, size, fontSize, color, align);
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            return text;
+        }
+
+        static RectTransform NewUiButton(Transform parent, string label, Vector2 pos, Vector2 size, bool accent, Action action = null, int fontSize = 16, bool interactable = true)
+        {
+            bool close = label == "×";
+            var rect = Rect("Quantum Style Button", parent, size, pos, close ? new Color(0, 0, 0, 0) : accent ? Accent : Btn);
+            Round(rect.GetComponent<Image>(), button);
+            var b = rect.gameObject.AddComponent<UnityEngine.UI.Button>(); b.targetGraphic = rect.GetComponent<Image>(); b.interactable = interactable;
+            actions[rect.gameObject.GetInstanceID()] = action ?? (() => { });
+            NewUiLabel(rect, label, Vector2.zero, size - new Vector2(8, 4), fontSize, close ? Faint : accent ? Ink : Text, TextAnchor.MiddleCenter);
+            return rect;
+        }
+
+        static RectTransform NewUiKeyField(Transform parent, string value, Vector2 pos, Vector2 size)
+        {
+            var rect = Rect("Lunar Link Key Input", parent, size, pos, Btn);
+            var image = rect.GetComponent<Image>();
+            Round(image, button);
+            var buttonComponent = rect.gameObject.AddComponent<UnityEngine.UI.Button>();
+            buttonComponent.targetGraphic = image;
+            actions[rect.gameObject.GetInstanceID()] = BeginNewUiKeyCapture;
+            newUiKeyInputText = NewUiLabel(rect, value, Vector2.zero, size - new Vector2(8, 4), 16, Text, TextAnchor.MiddleCenter);
+            newUiKeyInputImage = image;
+            return rect;
+        }
+
+        static void ScrollNewUi(float wheel)
+        {
+            if (newUiContent == null || newUiViewport == null) return;
+            float max = Mathf.Max(0, newUiContent.rect.height - newUiViewport.rect.height);
+            if (max <= 0) return;
+            if (newUiScrollAnimationUntil > 0f)
+            {
+                newUiScrollAnimationUntil = 0f;
+                newUiScrollTarget = newUiScroll;
+                newUiScrollVelocity = 0f;
+            }
+            newUiScrollTarget = Mathf.Clamp(newUiScrollTarget - (Mathf.Abs(wheel) > 10f ? wheel / 6f : wheel * 30f), 0, max);
+        }
+
+        static Image NewUiFade(Transform parent, bool top, Vector2 pos)
+        {
+            const int h = 64; var texture = new Texture2D(1, h, TextureFormat.RGBA32, false) { name = top ? "Quantum Top Fade" : "Quantum Bottom Fade", filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+            var pixels = new Color[h];
+            for (int y = 0; y < h; y++) { float t = y / (float)(h - 1); pixels[y] = new Color(1, 1, 1, top ? t : 1f - t); }
+            texture.SetPixels(pixels); texture.Apply(false, true);
+            var sprite = Sprite.Create(texture, new UnityEngine.Rect(0, 0, 1, h), new Vector2(0.5f, 0.5f), 100f);
+            if (top) newUiTopFadeSprite = sprite; else newUiBottomFadeSprite = sprite;
+            var r = Rect("List Fade", parent, new Vector2(620, 32), pos, null);
+            var image = r.gameObject.AddComponent<Image>(); image.sprite = sprite; image.type = Image.Type.Sliced; image.color = Panel; image.raycastTarget = false; image.gameObject.SetActive(false); image.transform.SetAsLastSibling();
+            return image;
+        }
+
+        static void UpdateNewUiFades()
+        {
+            float max = newUiContent == null || newUiViewport == null ? 0 : Mathf.Max(0, newUiContent.rect.height - newUiViewport.rect.height);
+            bool canScroll = max > 0.01f;
+            if (newUiTopFade != null) newUiTopFade.gameObject.SetActive(canScroll && newUiScroll > 0.5f);
+            if (newUiBottomFade != null) newUiBottomFade.gameObject.SetActive(canScroll && newUiScroll < max - 0.5f);
+        }
+
+        static void UiVersionToggle(Transform parent, float width, float height, float controlScale = 1f)
+        {
+            var label = newUi ? "OLD UI" : "NEW UI";
+            float s = Mathf.Max(0.1f, controlScale);
+            NewUiButton(parent, label, new Vector2(-width / 2 + 68 * s, -height / 2 + 32 * s), new Vector2(112 * s, 38 * s), true, () =>
+            {
+                newUi = !newUi;
+                Draw(true);
+            }, Mathf.Max(8, Mathf.RoundToInt(19 * s)));
         }
 
         // What the LunarLink.Update module knows (its GET /update answer, through the core's Updates slot); on = false
@@ -477,7 +1750,7 @@ namespace LunarLink
                     Detail = "The LunarLink.Update module isn't running: turn it on in HOT PLUGINS (tick Show LunarLink modules)" });
                 return rows;
             }
-            var v = new View { Name = "LunarLink " + u.running };
+            var v = new View { Name = "Lunar Link " + u.running, Warm = true };
             switch (u.state)
             {
                 case "available": v.State = u.latest + " available"; v.StateColour = Accent; break;
@@ -495,7 +1768,7 @@ namespace LunarLink
             rows.Add(v);
             foreach (var m in u.modules)
             {
-                var r = new View { Name = m.name };
+                var r = new View { Name = DisplayNames.For(m.name), Warm = true };
                 switch (m.state)
                 {
                     case "available": r.State = m.version != null ? m.version + " available" : "newer build"; r.StateColour = Accent; break;
@@ -515,7 +1788,7 @@ namespace LunarLink
             // plugins that update themselves (they answer UpdateFeed()): from where they say
             foreach (var p in u.plugins)
             {
-                var r = new View { Name = p.name + " " + p.version };
+                var r = new View { Name = DisplayNames.For(p.name) + " " + p.version, Warm = true };
                 switch (p.state)
                 {
                     case "available": r.State = p.latest + " available"; r.StateColour = Accent; break;
@@ -536,12 +1809,29 @@ namespace LunarLink
 
         // a tab: a rounded pill, orange with dark bold text when open, grey with light text when not (as Quantum
         // Conveyors' tabs)
-        static void Tab(Transform parent, string label, bool on, Vector2 pos, Action pick, float width)
+        static void Tab(Transform parent, string label, bool on, Vector2 pos, Action pick, float width, string help)
         {
             var r = Rect("Tab", parent, new Vector2(width, 46), pos, on ? Accent : Btn); Round(r.GetComponent<Image>(), button);
             var b = r.gameObject.AddComponent<UnityEngine.UI.Button>(); b.targetGraphic = r.GetComponent<Image>();
             actions[r.gameObject.GetInstanceID()] = pick;
-            Label(r, "<b>" + label + "</b>", Vector2.zero, new Vector2(width - 10, 40), 20, on ? Ink : Text, TextAnchor.MiddleCenter);
+            float labelWidth = width - 54f;
+            float groupWidth = labelWidth + 8f + 24f;
+            float groupLeft = -groupWidth / 2f;
+            Label(r, "<b>" + label + "</b>", new Vector2(groupLeft + labelWidth / 2f, 0), new Vector2(labelWidth, 40), 20, on ? Ink : Text, TextAnchor.MiddleCenter);
+            TabHelp(parent, r, new Vector2(groupLeft + labelWidth + 8f + 12f, 0), help, Btn, Text, new Vector2(pos.x + width / 2f, pos.y - 150f));
+        }
+
+        static void TabHelp(Transform tipParent, Transform tab, Vector2 pos, string text, Color dotColor, Color textColor, Vector2 tipPos)
+        {
+            EnsureSprites();
+            var dot = Rect("TabHelp", tab, new Vector2(24, 24), pos, dotColor);
+            var img = dot.GetComponent<Image>(); img.sprite = circle; img.type = Image.Type.Sliced;
+            var q = Label(dot, "?", Vector2.zero, new Vector2(22, 22), 15, textColor, TextAnchor.MiddleCenter); q.fontStyle = FontStyle.Bold;
+            var tip = Rect("Tip", tipParent, new Vector2(500, 150), tipPos, TipBg);
+            var tx = Label(tip, text, Vector2.zero, new Vector2(472, 126), 17, Text, TextAnchor.UpperLeft);
+            tx.verticalOverflow = VerticalWrapMode.Overflow;
+            tip.gameObject.SetActive(false);
+            tips.Add((dot, tip));
         }
 
         // A track along the list's right edge with a thumb for the rows in view; a click above or below the thumb moves
@@ -571,10 +1861,16 @@ namespace LunarLink
             Label(r, label, new Vector2(18, 0), new Vector2(340, 30), 18, Ink, TextAnchor.MiddleLeft);
         }
 
+        static void ToggleButton(Transform parent, string label, bool on, Vector2 pos, Action flip)
+        {
+            Label(parent, label, new Vector2(pos.x - 135, pos.y), new Vector2(260, 34), 18, Ink, TextAnchor.MiddleRight);
+            Button(parent, on ? "On" : "Off", new Vector2(pos.x + 55, pos.y), new Vector2(110, 40), flip, on);
+        }
+
         static void DrawRow(View v, float y)
         {
             var row = Rect("Row", panel, new Vector2(W - 70, RowH), new Vector2(-15, y), Panel);
-            Shade(row, v.State == "running" || v.State == "available");   // warm for something live or waiting
+            Shade(row, v.Warm, v.Disabled);
             if (v.Buttons.Count == 0)            // the API tab: a long path, its group on the right, the help under it
             {
                 Label(row, "<b>" + v.Name + "</b>", new Vector2(-W / 2 + 382, 14), new Vector2(660, 34), 21, Ink, TextAnchor.MiddleLeft);
@@ -583,10 +1879,28 @@ namespace LunarLink
                 return;
             }
             Label(row, "<b>" + v.Name + "</b>", new Vector2(-W / 2 + 222, 14), new Vector2(330, 34), 23, Ink, TextAnchor.MiddleLeft);
-            Label(row, v.State, new Vector2(-W / 2 + 492, 14), new Vector2(200, 34), 20, v.StateColour, TextAnchor.MiddleLeft);
+            if (!string.IsNullOrEmpty(v.State)) Label(row, v.State, new Vector2(-W / 2 + 492, 14), new Vector2(200, 34), 20, v.StateColour, TextAnchor.MiddleLeft);
             Label(row, v.Detail, new Vector2(-W / 2 + 357, -18), new Vector2(600, 28), 17, Dim, TextAnchor.MiddleLeft);
             float x = W / 2 - 131;
-            for (int i = v.Buttons.Count - 1; i >= 0; i--) { var (label, act, accent) = v.Buttons[i]; Button(row, label, new Vector2(x, 0), new Vector2(130, 46), act, accent); x -= 145; }
+            for (int i = v.Buttons.Count - 1; i >= 0; i--)
+            {
+                var (label, act, accent) = v.Buttons[i];
+                var shownLabel = v.UpdateAvailable && label == "Reload" ? "Update" : label;
+                var buttonAccent = accent || (v.UpdateAvailable && label == "Reload");
+                var button = Button(row, shownLabel, new Vector2(x, 0), new Vector2(130, 46), act, buttonAccent);
+                if (v.Disabled && label == "Reload") button.gameObject.AddComponent<CanvasGroup>().alpha = 0.8f;
+                x -= 145;
+            }
+            if (v.Disabled)
+            {
+                // Fade the disabled row's background/text, but leave its Enable
+                // button fully visible and orange so the available action is clear.
+                foreach (Transform child in row)
+                {
+                    if (child.GetComponent<Button>() != null || child.GetComponentInParent<Button>() != null) continue;
+                    var group = child.gameObject.AddComponent<CanvasGroup>(); group.alpha = 0.8f;
+                }
+            }
             if (v.Tip != null) Help(panel, new Vector2(-15 + x + 30, y), v.Tip, new Vector2(720, 240), new Vector2(-15, y - RowH / 2 - 130));
         }
 
@@ -597,9 +1911,16 @@ namespace LunarLink
         static void Act(Func<string> what)
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            try { message = what() + " (" + clock.ElapsedMilliseconds + " ms)"; }
+            bool showSettingsToast = false;
+            try
+            {
+                message = what() + " (" + clock.ElapsedMilliseconds + " ms)";
+                showSettingsToast = newUiShowSettingsToastNext;
+                newUiShowSettingsToastNext = false;
+            }
             catch (Exception e) { message = "Error: " + e.Message; Plugin.L.LogWarning("hot window: " + e); }
             if (layer != null) Draw(true);          // a reload of this module from its own row has closed this copy
+            if (showSettingsToast && newUi) ShowNewUiSettingsToast();
         }
 
         // A left-click press: runs the button under the mouse.
@@ -626,19 +1947,57 @@ namespace LunarLink
         }
 
         // ------------------------------------------------ the rounded look (drawn once at 2x, so corners stay smooth)
-        static Sprite rounded, button, circle, warm, cool;
+        static Sprite rounded, button, circle, warm, cool, grey, pill;
 
         static void EnsureSprites()
         {
-            if (rounded != null) return;
-            rounded = RoundedSprite(24, "LunarLink Rounded");
-            button = RoundedSprite(12, "LunarLink Button");
-            circle = RoundedSprite(128, "LunarLink Circle");
-            warm = Gradient(new Color(Accent.r, Accent.g, Accent.b, 0.22f), new Color(Accent.r, Accent.g, Accent.b, 0f), "LunarLink Warm");
-            cool = Gradient(new Color(Ink.r, Ink.g, Ink.b, 0.24f), new Color(Ink.r, Ink.g, Ink.b, 0f), "LunarLink Cool");
+            // Hot reloads can tear down one generated sprite before the others.
+            // Recreate each missing asset independently instead of assuming the
+            // rounded sprite means the complete set is still alive.
+            if (rounded == null) rounded = RoundedSprite(24, "LunarLink Rounded");
+            if (button == null) button = RoundedSprite(12, "LunarLink Button");
+            if (circle == null) circle = RoundedSprite(128, "LunarLink Circle");
+            if (pill == null) pill = PillSprite("LunarLink Toast Pill");
+            if (warm == null) warm = Gradient(new Color(Accent.r, Accent.g, Accent.b, 0.22f), new Color(Accent.r, Accent.g, Accent.b, 0f), "LunarLink Warm");
+            if (cool == null) cool = Gradient(new Color(Ink.r, Ink.g, Ink.b, 0.24f), new Color(Ink.r, Ink.g, Ink.b, 0f), "LunarLink Cool");
+            if (grey == null) grey = Gradient(new Color(0.48f, 0.48f, 0.48f, 0.22f), new Color(0.48f, 0.48f, 0.48f, 0f), "LunarLink Disabled");
+            if (newUiFolderIcon == null) newUiFolderIcon = FolderIcon();
+        }
+
+        static Sprite FolderIcon()
+        {
+            const int size = 48; var color = Ink;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false) { name = "Quantum Folder Icon", filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+            var pixels = new Color[size * size];
+            void Put(int x, int y) { if (x >= 0 && x < size && y >= 0 && y < size) pixels[y * size + x] = color; }
+            for (var y = 12; y <= 36; y++) for (var x = 6; x <= 40; x++) Put(x, y);
+            for (var y = 36; y <= 40; y++) for (var x = 10; x <= 22; x++) Put(x, y);
+            for (var x = 8; x <= 20; x++) Put(x, 38);
+            texture.SetPixels(pixels); texture.Apply(false, true);
+            return Sprite.Create(texture, new UnityEngine.Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 200f);
         }
 
         static Sprite RoundedSprite(int radius, string name) => Sprite256(256, radius, name, (x, y) => Color.white);
+
+        // A true capsule at the toast's native aspect ratio.  It is rendered as
+        // a simple image rather than 9-sliced, so the corner radius stays exactly
+        // half the height when the whole toast is scaled.
+        static Sprite PillSprite(string name)
+        {
+            const int w = 720, h = 34, radius = 17;
+            var t = new Texture2D(w, h, TextureFormat.RGBA32, false) { name = name, filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+            var px = new Color[w * h];
+            for (int y = 0; y < h; y++) for (int x = 0; x < w; x++)
+            {
+                float fx = x + 0.5f, fy = y + 0.5f;
+                float cx = Mathf.Clamp(fx, radius, w - radius), cy = Mathf.Clamp(fy, radius, h - radius);
+                var c = Color.white;
+                c.a = Mathf.Clamp01(radius + 0.5f - Vector2.Distance(new Vector2(fx, fy), new Vector2(cx, cy)));
+                px[y * w + x] = c;
+            }
+            t.SetPixels(px); t.Apply(false, true);
+            return Sprite.Create(t, new UnityEngine.Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 200f);
+        }
 
         // a soft colour across a row, left to right, with the rows' rounded corners
         static Sprite Gradient(Color left, Color right, string name) => Sprite256(128, 24, name, (x, y) => Color.Lerp(left, right, x / 255f));
@@ -668,11 +2027,11 @@ namespace LunarLink
         }
 
         // the soft gradient across a row: warm (orange) for something live, cool otherwise
-        static void Shade(RectTransform row, bool warmTone)
+        static void Shade(RectTransform row, bool warmTone, bool muted)
         {
             EnsureSprites();
             var g = Rect("Shade", row, row.sizeDelta, Vector2.zero, null);
-            var img = g.gameObject.AddComponent<Image>(); img.sprite = warmTone ? warm : cool; img.type = Image.Type.Sliced; img.raycastTarget = false;
+            var img = g.gameObject.AddComponent<Image>(); img.sprite = muted ? grey : warmTone ? warm : cool; img.type = Image.Type.Sliced; img.raycastTarget = false;
             g.SetAsFirstSibling();
         }
 
@@ -681,11 +2040,12 @@ namespace LunarLink
         static void Help(Transform parent, Vector2 pos, string text, Vector2 tipSize, Vector2 tipPos)
         {
             EnsureSprites();
-            var dot = Rect("Help", parent, new Vector2(30, 30), pos, Btn);
+            var dot = Rect("Help", parent, new Vector2(28, 28), pos, Btn);
             var img = dot.GetComponent<Image>(); img.sprite = circle; img.type = Image.Type.Sliced;
-            var q = Label(dot, "?", Vector2.zero, new Vector2(26, 26), 18, Text, TextAnchor.MiddleCenter); q.fontStyle = FontStyle.Bold;
+            var q = Label(dot, "?", Vector2.zero, new Vector2(24, 24), 16, Text, TextAnchor.MiddleCenter); q.fontStyle = FontStyle.Bold;
             var tip = Rect("Tip", parent, tipSize, tipPos, TipBg);
-            var tx = Label(tip, text, Vector2.zero, tipSize - new Vector2(28, 24), 17, Text, TextAnchor.UpperLeft);
+            var tx = Label(tip, text, Vector2.zero, tipSize - new Vector2(26, 22), 13, Text, TextAnchor.UpperLeft);
+            tx.horizontalOverflow = HorizontalWrapMode.Wrap;
             tx.verticalOverflow = VerticalWrapMode.Overflow;
             tip.gameObject.SetActive(false);
             tips.Add((dot, tip));
@@ -704,6 +2064,98 @@ namespace LunarLink
             }
         }
 
+        // Lock the player exactly like Quantum Conveyors does while its menu is open.
+        // Cursor visibility alone is not enough: the game's movement actions would
+        // otherwise continue receiving WASD, jump, tool, and interaction input.
+        static void Freeze()
+        {
+            lockBefore = Cursor.lockState; visibleBefore = Cursor.visible;
+            var found = FindWalker();
+            if (found != null)
+            {
+                previousWalkerBlocked = found.UIBlocked;
+                previousWalkerEnabled = found.enabled;
+                playerInput = found.inputTemplate;
+                if (playerInput != null)
+                {
+                    previousPlayerInputEnabled = playerInput.enabled;
+                    playerInput.Disable();
+                }
+                else DisableFallbackInputAssets();
+                found.UIBlocked = true;
+            }
+            else DisableFallbackInputAssets();
+            Cursor.lockState = CursorLockMode.None; Cursor.visible = true;
+        }
+
+        static void Unfreeze()
+        {
+            try
+            {
+                var found = FindWalker();
+                if (found != null) { found.UIBlocked = previousWalkerBlocked; found.enabled = previousWalkerEnabled; }
+            }
+            catch (Exception e) { Plugin.L.LogWarning("window input restore skipped: " + e.Message); }
+            try { if (playerInput != null && previousPlayerInputEnabled) playerInput.Enable(); }
+            catch (Exception e) { Plugin.L.LogWarning("window player input restore skipped: " + e.Message); }
+            playerInput = null;
+            foreach (var asset in fallbackInputAssets)
+                try { if (asset != null) asset.Enable(); } catch { }
+            fallbackInputAssets.Clear();
+            Cursor.lockState = lockBefore; Cursor.visible = visibleBefore;
+        }
+
+        static MoonWalker FindWalker()
+        {
+            if (walker != null) return walker;
+            var cam = Camera.main ?? Camera.current;
+            if (cam != null)
+            {
+                var found = cam.GetComponent(Il2CppType.Of<MoonWalker>());
+                if (found == null) found = cam.GetComponentInParent(Il2CppType.Of<MoonWalker>());
+                if (found == null) found = cam.transform.root.GetComponentInChildren(Il2CppType.Of<MoonWalker>());
+                walker = found as MoonWalker;
+                if (walker != null) return walker;
+            }
+            try
+            {
+                foreach (var candidate in UnityEngine.Object.FindObjectsOfType<MoonWalker>(true))
+                    if (candidate != null) { walker = candidate; return walker; }
+            }
+            catch { }
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                var scene = SceneManager.GetSceneAt(i); if (!scene.isLoaded) continue;
+                foreach (var root in scene.GetRootGameObjects())
+                {
+                    var found = root.GetComponentInChildren(Il2CppType.Of<MoonWalker>()) as MoonWalker;
+                    if (found != null) { walker = found; return walker; }
+                }
+            }
+            foreach (var item in Resources.FindObjectsOfTypeAll(Il2CppType.Of<MoonWalker>()))
+            {
+                walker = item as MoonWalker;
+                if (walker != null && walker.gameObject.scene.IsValid()) return walker;
+            }
+            return walker;
+        }
+
+        static void DisableFallbackInputAssets()
+        {
+            foreach (var item in Resources.FindObjectsOfTypeAll(Il2CppType.Of<InputActionAsset>()))
+            {
+                var asset = item as InputActionAsset;
+                if (asset == null || !asset.enabled || IsUiInputAsset(asset)) continue;
+                asset.Disable(); fallbackInputAssets.Add(asset);
+            }
+        }
+
+        static bool IsUiInputAsset(InputActionAsset asset)
+        {
+            var n = asset.name ?? string.Empty;
+            return n.IndexOf("ui", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("menu", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         static UnityEngine.UI.Text Label(Transform parent, string text, Vector2 pos, Vector2 size, int fontSize, Color color, TextAnchor align)
         {
             var t = Rect("Text", parent, size, pos, null).gameObject.AddComponent<UnityEngine.UI.Text>();
@@ -713,7 +2165,7 @@ namespace LunarLink
             return t;
         }
 
-        static void Button(Transform parent, string label, Vector2 pos, Vector2 size, Action action, bool accent = false)
+        static RectTransform Button(Transform parent, string label, Vector2 pos, Vector2 size, Action action, bool accent = false)
         {
             bool close = label == "×";
             var r = Rect("Button", parent, size, pos, close ? new Color(0, 0, 0, 0) : accent ? Accent : Btn); Round(r.GetComponent<Image>(), button);
@@ -721,6 +2173,7 @@ namespace LunarLink
             actions[r.gameObject.GetInstanceID()] = action;
             var t = Label(r, label, Vector2.zero, size - new Vector2(8, 4), close ? 34 : 19, accent ? Ink : close ? Faint : Text, TextAnchor.MiddleCenter);
             if (accent) t.fontStyle = FontStyle.Bold;
+            return r;
         }
     }
 }
