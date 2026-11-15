@@ -40,7 +40,7 @@ gh release create "$TAG" "$ZIP" --target main --title "LunarLink $VER" --notes "
 
 ### Install
 
-**Already have LunarLink?** In the game, press F9 → UPDATES → **Update**, then restart the game once when it says so
+**Already have LunarLink?** In the game, press F9 → **Updates** → **Update**, then restart the game once when it says so
 (a new core loads at start). Modules you turned off stay off.
 
 **New install:** close the game, unzip into the game's folder (the one that holds \`BepInEx/\`) and start it. Needs only
