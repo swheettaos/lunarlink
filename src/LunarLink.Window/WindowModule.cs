@@ -53,7 +53,7 @@ namespace LunarLink
         const float W = 1040f, RowH = 76f, Gap = 8f, Head = 60f; const int MaxRows = 7;
         static int first;                      // the first row shown (scrolling)
         static int tab;                        // 0 hot plugins, 1 BepInEx plugins, 2 API (every endpoint, GET /help), 3 updates
-        static bool newUi;                     // temporary blank Quantum-style pane toggle
+        static bool newUi = true;              // the Quantum-style pane (the default); OLD UI switches back
         static int newUiTab;                   // 0 Link Plugins, 1 Other Plugins, 2 API, 3 Updates
         static bool bepTab => tab == 1;
         static string apiGroup;                // API tab: the area or plugin shown (null = all)
@@ -80,9 +80,13 @@ namespace LunarLink
         static readonly HashSet<string> newUiOpenBepPlugins = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         static readonly HashSet<string> newUiOpenApiEndpoints = new HashSet<string>(StringComparer.Ordinal);
         static bool newUiAnimateNext, newUiAutoGroup;
+        static string newUiOpened;              // the row just opened (its key), for the scroll after it
+        // the settings page in place of the list: one plugin's settings (its config file), opened from its row's Settings
+        // button; Back (or a tab) returns to the list where it was
+        sealed class SettingsPage { public string Title, Name, Guid, File; public bool Hot; public float ScrollBefore; }
+        static SettingsPage newUiSettingsPage;
         static bool newUiCapturingKey;
         static float newUiScroll, newUiScrollTarget, newUiScrollVelocity, newUiScrollAnimationFrom, newUiScrollAnimationTo, newUiScrollAnimationUntil;
-        static readonly Dictionary<string, (float From, float To)> newUiQueuedArrowAnimations = new Dictionary<string, (float, float)>(StringComparer.Ordinal);
         static readonly HashSet<string> newUiQueuedGradientRows = new HashSet<string>(StringComparer.Ordinal);
         static readonly HashSet<string> newUiQueuedReloadRows = new HashSet<string>(StringComparer.Ordinal);
         static RectTransform newUiContent, newUiViewport;
@@ -100,9 +104,6 @@ namespace LunarLink
         static bool newUiCapturingSetting;
         static RectTransform newUiRestartButton;
         static UnityEngine.UI.Text newUiRestartButtonText;
-        static UnityEngine.UI.Text newUiToastText;
-        static bool newUiShowSettingsToastNext;
-        static float newUiToastUntil;
         static bool newUiRestartWaiting;
         static float newUiRestartQuitAt;
         static GameObject newUiFooterObject, newUiKeyRowObject;
@@ -114,10 +115,8 @@ namespace LunarLink
         static Image newUiTopFade, newUiBottomFade;
         static Sprite newUiTopFadeSprite, newUiBottomFadeSprite;
         sealed class UiRowTween { public RectTransform Row; public Vector2 From, To; public CanvasGroup FadeGroup; public float FadeFrom, FadeTo, FadeStart, FadeUntil, Until; }
-        sealed class UiArrowTween { public RectTransform Arrow; public float From, To, Until; }
         sealed class UiImageTween { public Image Image; public float From, To, Start, Until; }
         static readonly List<UiRowTween> newUiRowTweens = new List<UiRowTween>();
-        static readonly List<UiArrowTween> newUiArrowTweens = new List<UiArrowTween>();
         static readonly List<UiImageTween> newUiImageTweens = new List<UiImageTween>();
         static readonly Dictionary<string, RectTransform> newUiLiveRows = new Dictionary<string, RectTransform>(StringComparer.Ordinal);
         static Sprite newUiFolderIcon;
@@ -128,11 +127,6 @@ namespace LunarLink
             {
                 if (Time.unscaledTime >= newUiRestartQuitAt) FinishNewUiRestart();
                 return;
-            }
-            if (newUiToastUntil > 0f && Time.unscaledTime >= newUiToastUntil)
-            {
-                if (newUiToastText != null) newUiToastText.transform.parent.gameObject.SetActive(false);
-                newUiToastUntil = 0f;
             }
             SavedThenMenu(); LoadAgain();
             if (reopenTab >= 0 && layer == null) { tab = reopenTab; reopenTab = -1; Open(); message = "The window reloaded with the new build"; Draw(true); return; }
@@ -171,14 +165,6 @@ namespace LunarLink
                     a.FadeGroup.alpha = Mathf.LerpUnclamped(a.FadeFrom, a.FadeTo, fadeSmooth);
                 }
                 if (t >= 1f) newUiRowTweens.RemoveAt(i);
-            }
-            for (int i = newUiArrowTweens.Count - 1; i >= 0; i--)
-            {
-                var a = newUiArrowTweens[i]; if (a.Arrow == null) { newUiArrowTweens.RemoveAt(i); continue; }
-                float t = Mathf.Clamp01(1f - (a.Until - Time.unscaledTime) / 0.22f);
-                float smooth = t * t * (3f - 2f * t);
-                a.Arrow.localRotation = Quaternion.Euler(0, 0, Mathf.LerpUnclamped(a.From, a.To, smooth));
-                if (t >= 1f) newUiArrowTweens.RemoveAt(i);
             }
             if (newUiScrollAnimationUntil > 0f && newUiContent != null)
             {
@@ -301,7 +287,6 @@ namespace LunarLink
             newUiEditingSetting = null; newUiSettingDraft = null; newUiSettingInputText = null; newUiCapturingSetting = false;
             newUiRestartButton = null;
             newUiRestartButtonText = null; newUiRestartWaiting = false;
-            newUiToastText = null; newUiToastUntil = 0f; newUiShowSettingsToastNext = false;
             newUiLiveRows.Clear();
             newUiQueuedGradientRows.Clear();
             newUiQueuedReloadRows.Clear();
@@ -604,61 +589,63 @@ namespace LunarLink
             UiVersionToggle(panel, paneW, paneH, controlScale);
             NewUiButton(panel, "×", new Vector2(paneW / 2 - 34 * controlScale, paneH / 2 - 36 * controlScale),
                 new Vector2(52 * controlScale, 50 * controlScale), false, Close, Mathf.Max(8, Mathf.RoundToInt(34 * controlScale)));
-            var quantumLayout = Rect("Quantum Menu Layout", panel, new Vector2(640, 600), Vector2.zero, null);
-            quantumLayout.localScale = new Vector3(0.54f, 0.54f, 1f);
-            Label(quantumLayout, "Lunar Link", new Vector2(0, 250), new Vector2(620, 42), 26, Ink, TextAnchor.MiddleCenter);
-            Help(quantumLayout, new Vector2(180, 250), "<b>Lunar Link</b> keeps this workspace open while we replace the old manager screen.\n\nThe folder and channel rows below are a visual starting point based on Quantum Conveyors.\n\nHot reload usually applies hot-module settings. Some settings are read only during game startup and still require a full restart.", new Vector2(560, 248), new Vector2(0, 40));
-            const float tabWidth = 126f, tabGap = 10f;
+            // the layout is 600 units tall (Quantum's own), scaled to fill the pane from its top edge (the title sits level
+            // with the close cross) down to the band kept for the OLD UI button, and as wide as the pane at that scale
+            float topBand = 8f * controlScale, bottomBand = 44f * controlScale;
+            float layoutScale = (paneH - topBand - bottomBand) / 600f;
+            float LW = Mathf.Max(640f, (paneW - 32f * controlScale) / layoutScale);
+            newUiRowW = LW - 40f;
+            var quantumLayout = Rect("Quantum Menu Layout", panel, new Vector2(LW, 600), new Vector2(0, (bottomBand - topBand) / 2f), null);
+            quantumLayout.localScale = new Vector3(layoutScale, layoutScale, 1f);
+            Label(quantumLayout, "Lunar Link", new Vector2(0, 278), new Vector2(LW - 20, 42), 26, Ink, TextAnchor.MiddleCenter);
+            Help(quantumLayout, new Vector2(180, 278), "<b>Lunar Link</b> keeps this workspace open while we replace the old manager screen.\n\nThe folder and channel rows below are a visual starting point based on Quantum Conveyors.\n\nHot reload usually applies hot-module settings. Some settings are read only during game startup and still require a full restart.", new Vector2(560, 248), new Vector2(0, 40));
+            const float tabGap = 10f; float tabWidth = Mathf.Min(170f, (LW - 40f - 3 * tabGap) / 4f);
             float tabStart = -(tabWidth * 4f + tabGap * 3f) / 2f + tabWidth / 2f;
-            var linkTab = NewUiButton(quantumLayout, "Link Plugins", new Vector2(tabStart, 168), new Vector2(tabWidth, 40), newUiTab == 0,
-                () => { newUiTab = 0; Draw(true); }, 14);
-            var otherTab = NewUiButton(quantumLayout, "Other Plugins", new Vector2(tabStart + tabWidth + tabGap, 168), new Vector2(tabWidth, 40), newUiTab == 1,
-                () => { newUiTab = 1; Draw(true); }, 14);
-            var apiTab = NewUiButton(quantumLayout, "API", new Vector2(tabStart + (tabWidth + tabGap) * 2f, 168), new Vector2(tabWidth, 40), newUiTab == 2,
-                () => { newUiTab = 2; Draw(true); }, 14);
-            var updatesTab = NewUiButton(quantumLayout, "Updates", new Vector2(tabStart + (tabWidth + tabGap) * 3f, 168), new Vector2(tabWidth, 40), newUiTab == 3, null, 14);
+            var linkTab = NewUiButton(quantumLayout, "Link Plugins", new Vector2(tabStart, 228), new Vector2(tabWidth, 40), newUiTab == 0,
+                () => { newUiTab = 0; newUiSettingsPage = null; Draw(true); }, 14);
+            var otherTab = NewUiButton(quantumLayout, "Other Plugins", new Vector2(tabStart + tabWidth + tabGap, 228), new Vector2(tabWidth, 40), newUiTab == 1,
+                () => { newUiTab = 1; newUiSettingsPage = null; Draw(true); }, 14);
+            var apiTab = NewUiButton(quantumLayout, "API", new Vector2(tabStart + (tabWidth + tabGap) * 2f, 228), new Vector2(tabWidth, 40), newUiTab == 2,
+                () => { newUiTab = 2; newUiSettingsPage = null; Draw(true); }, 14);
+            var updatesTab = NewUiButton(quantumLayout, "Updates", new Vector2(tabStart + (tabWidth + tabGap) * 3f, 228), new Vector2(tabWidth, 40), newUiTab == 3, null, 14);
             newUiTabImages[0] = linkTab.GetComponent<Image>(); newUiTabTexts[0] = linkTab.GetComponentInChildren<UnityEngine.UI.Text>();
             newUiTabImages[1] = otherTab.GetComponent<Image>(); newUiTabTexts[1] = otherTab.GetComponentInChildren<UnityEngine.UI.Text>();
             newUiTabImages[2] = apiTab.GetComponent<Image>(); newUiTabTexts[2] = apiTab.GetComponentInChildren<UnityEngine.UI.Text>();
             newUiTabImages[3] = updatesTab.GetComponent<Image>(); newUiTabTexts[3] = updatesTab.GetComponentInChildren<UnityEngine.UI.Text>();
 
-            newUiViewport = Rect("Channel Viewport", quantumLayout, new Vector2(620, 330), new Vector2(0, -26.5f), Panel);
+            newUiViewport = Rect("Channel Viewport", quantumLayout, new Vector2(LW - 20, 446), new Vector2(0, -20.5f), Panel);
             newUiViewport.gameObject.AddComponent<Mask>().showMaskGraphic = true;
-            newUiContent = Rect("Channel Content", newUiViewport, new Vector2(600, 44), Vector2.zero, null);
+            newUiContent = Rect("Channel Content", newUiViewport, new Vector2(newUiRowW, 44), Vector2.zero, null);
             newUiContent.anchorMin = newUiContent.anchorMax = newUiContent.pivot = new Vector2(0.5f, 1f);
-            newUiTransition = Rect("Channel Transition", newUiViewport, new Vector2(600, 44), Vector2.zero, null);
+            newUiTransition = Rect("Channel Transition", newUiViewport, new Vector2(newUiRowW, 44), Vector2.zero, null);
             newUiTransition.anchorMin = newUiTransition.anchorMax = newUiTransition.pivot = new Vector2(0.5f, 1f);
             newUiTransition.SetSiblingIndex(newUiContent.GetSiblingIndex());
             newUiTransitionGroup = newUiTransition.gameObject.AddComponent<CanvasGroup>();
             newUiTransitionGroup.blocksRaycasts = false; newUiTransitionGroup.interactable = false;
-            newUiTopFade = NewUiFade(newUiViewport, true, new Vector2(0, 159));
-            newUiBottomFade = NewUiFade(newUiViewport, false, new Vector2(0, -159));
+            newUiTopFade = NewUiFade(newUiViewport, true, new Vector2(0, 217), LW - 20);
+            newUiBottomFade = NewUiFade(newUiViewport, false, new Vector2(0, -217), LW - 20);
 
-            var footer = Rect("Lunar Link Modules Panel", quantumLayout, new Vector2(580, 44), new Vector2(0, -220), Panel);
+            // the modules switch and the menu key, side by side under the list: each a half-width box, its label on the
+            // left and its control on the right
+            float boxW = (LW - 50f) / 2f, boxY = -272f, labelW = boxW - 150f;
+            var footer = Rect("Lunar Link Modules Panel", quantumLayout, new Vector2(boxW, 44), new Vector2(-(boxW + 10f) / 2f, boxY), Panel);
             newUiFooterObject = footer.gameObject;
-            NewUiLabel(footer, "Native Lunar Link Modules", new Vector2(-60, 0), new Vector2(260, 30), 18, Ink, TextAnchor.MiddleLeft);
-            var moduleButton = NewUiButton(footer, (ShowModules?.Value ?? false) ? "Hide" : "Show", new Vector2(125, 0), new Vector2(110, 34), ShowModules?.Value ?? false,
+            NewUiLabel(footer, "Lunar Link Modules", new Vector2(-boxW / 2 + 15 + labelW / 2, 0), new Vector2(labelW, 30), 18, Ink, TextAnchor.MiddleLeft);
+            var moduleButton = NewUiButton(footer, (ShowModules?.Value ?? false) ? "Hide" : "Show", new Vector2(boxW / 2 - 70, 0), new Vector2(110, 34), ShowModules?.Value ?? false,
                 () => { if (ShowModules != null) ShowModules.Value = !ShowModules.Value; SaveWindowSettings(); Draw(true); }, 16);
             newUiModuleButtonText = moduleButton.GetComponentInChildren<UnityEngine.UI.Text>();
             newUiModuleButtonImage = moduleButton.GetComponent<Image>();
-            var keyRow = Rect("Lunar Link Menu Key Panel", quantumLayout, new Vector2(580, 44), new Vector2(0, -272), Panel);
+            var keyRow = Rect("Lunar Link Menu Key Panel", quantumLayout, new Vector2(boxW, 44), new Vector2((boxW + 10f) / 2f, boxY), Panel);
             newUiKeyRowObject = keyRow.gameObject;
-            NewUiLabel(keyRow, "Lunar Link Keybind", new Vector2(-60, 0), new Vector2(260, 30), 18, Ink, TextAnchor.MiddleLeft);
+            NewUiLabel(keyRow, "Lunar Link Keybind", new Vector2(-boxW / 2 + 15 + labelW / 2, 0), new Vector2(labelW, 30), 18, Ink, TextAnchor.MiddleLeft);
             // Keep this as a focused key-capture field rather than adding Unity's
             // editable InputField component.  The menu already captures the next
             // keyboard control in CaptureNewUiKey(), and InputField's internal
             // navigation setup is not safe across LunarLink hot reloads.
-            NewUiKeyField(keyRow, KeySetting?.Value ?? "F9", new Vector2(125, 0), new Vector2(110, 34));
-            newUiRestartButton = NewUiButton(quantumLayout, "Restart & Apply", new Vector2(0, -250), new Vector2(190, 38), true, RestartNewUiGame, 16);
+            NewUiKeyField(keyRow, KeySetting?.Value ?? "F9", new Vector2(boxW / 2 - 70, 0), new Vector2(110, 34));
+            newUiRestartButton = NewUiButton(quantumLayout, "Restart & Apply", new Vector2(-LW / 2 + 115, 278), new Vector2(190, 38), true, RestartNewUiGame, 16);
             newUiRestartButtonText = newUiRestartButton.GetComponentInChildren<UnityEngine.UI.Text>();
             newUiRestartButton.gameObject.SetActive(false);
-            var toast = Rect("New UI Settings Toast", panel, new Vector2(720f * controlScale, 34f * controlScale),
-                new Vector2(0, -paneH / 2f + 28f * controlScale), Btn);
-            var toastImage = toast.GetComponent<Image>(); toastImage.sprite = pill; toastImage.type = Image.Type.Simple;
-            newUiToastText = NewUiLabel(toast, "", Vector2.zero, new Vector2(704f * controlScale, 30f * controlScale),
-                Mathf.Max(8, Mathf.RoundToInt(13f * controlScale)), Text, TextAnchor.MiddleCenter);
-            newUiToastText.horizontalOverflow = HorizontalWrapMode.Overflow;
-            toast.gameObject.SetActive(false);
             RefreshNewUiContent();
         }
 
@@ -685,7 +672,7 @@ namespace LunarLink
             if (newUiRestartButton != null)
             {
                 bool restartRequired = newUiTab == 1
-                    && (PluginSettings.PendingNormal || BepPlugins.List().Any(e => e.State != null && e.State.Contains("next start")));
+                    && (PluginSettings.Pending || BepPlugins.List().Any(e => e.State != null && e.State.Contains("next start")));
                 newUiRestartButton.gameObject.SetActive(restartRequired);
             }
             bool showModules = ShowModules?.Value ?? false;
@@ -697,7 +684,6 @@ namespace LunarLink
             if (newUiModuleButtonImage != null) newUiModuleButtonImage.color = showModules ? Accent : Btn;
             float previousScroll = newUiScroll;
             float previousTarget = newUiScrollTarget;
-            float previousMaxScroll = Mathf.Max(0f, newUiContent.rect.height - newUiViewport.rect.height);
             bool animateTransition = newUiAnimateNext || newUiQueuedGradientRows.Count > 0;
             Dictionary<string, Vector2> previousPositions = null;
             Dictionary<string, RectTransform> previousRows = null;
@@ -723,8 +709,9 @@ namespace LunarLink
                 for (int i = newUiContent.childCount - 1; i >= 0; i--) UnityEngine.Object.Destroy(newUiContent.GetChild(i).gameObject);
             }
             newUiLiveRows.Clear();
-            newUiRowTweens.Clear(); newUiArrowTweens.Clear(); newUiRow = 0;
-            if (newUiTab == 1)
+            newUiRowTweens.Clear(); newUiRow = 0;
+            if (newUiSettingsPage != null) AddNewUiSettingsPage(newUiSettingsPage);
+            else if (newUiTab == 1)
             {
                 foreach (var e in BepPlugins.List()) AddNewUiBepPlugin(e);
             }
@@ -736,11 +723,23 @@ namespace LunarLink
             {
                 foreach (var e in Endpoints()) AddNewUiApiEndpoint(e);
             }
-            newUiContent.sizeDelta = new Vector2(600, Math.Max(44f, newUiRow * 52f));
+            foreach (var row in newUiContent.GetComponentsInChildren<RectTransform>(true)) if (row.name == "Row") StretchNewUiRow(row);
+            newUiContent.sizeDelta = new Vector2(newUiRowW, Math.Max(44f, newUiRow * 52f));
             float maxScroll = Mathf.Max(0f, newUiContent.rect.height - newUiViewport.rect.height);
+            // opening a row scrolls the list on just far enough to show what opened (the rows below move down), but
+            // never so far that the opened row itself goes above the top of the list
             float targetScroll = Mathf.Clamp(previousTarget, 0f, maxScroll);
-            if (newUiAnimateNext && maxScroll > previousMaxScroll && previousTarget >= previousMaxScroll - 1f)
-                targetScroll = maxScroll;
+            if (newUiOpened != null && previousPositions != null && newUiLiveRows.TryGetValue(newUiOpened, out var opened) && opened != null)
+            {
+                float Top(RectTransform r) { var tw = newUiRowTweens.FirstOrDefault(t => t.Row == r); return -(tw != null ? tw.To.y : r.anchoredPosition.y); }
+                float parentTop = Top(opened), shownTo = -1f;
+                foreach (var row in newUiLiveRows)
+                    if (row.Value != null && !previousPositions.ContainsKey(row.Key) && Top(row.Value) > parentTop)
+                        shownTo = Mathf.Max(shownTo, Top(row.Value) + row.Value.rect.height);   // the rows that just appeared
+                if (shownTo > 0f)
+                    targetScroll = Mathf.Clamp(Mathf.Max(targetScroll, Mathf.Min(shownTo - newUiViewport.rect.height, parentTop)), 0f, maxScroll);
+            }
+            newUiOpened = null;
             newUiScrollTarget = targetScroll;
             if (newUiAnimateNext && Mathf.Abs(previousScroll - targetScroll) > 0.01f)
             {
@@ -854,7 +853,7 @@ namespace LunarLink
                     }
                 }
             }
-            newUiAnimateNext = false; newUiQueuedArrowAnimations.Clear(); newUiQueuedGradientRows.Clear(); newUiQueuedReloadRows.Clear();
+            newUiAnimateNext = false; newUiQueuedGradientRows.Clear(); newUiQueuedReloadRows.Clear();
         }
 
         static void UpdateNewUiTabVisuals()
@@ -885,17 +884,17 @@ namespace LunarLink
                 if (open)
                 {
                     newUiOpenModules.Remove(r.Name);
-                    StartNewUiArrow(arrowKey, false);
+                    newUiAnimateNext = true;
                 }
                 else
                 {
                     foreach (var previous in newUiOpenModules.ToList())
                     {
                         newUiOpenModules.Remove(previous);
-                        StartNewUiArrow("m:" + previous, false);
+                        newUiAnimateNext = true;
                     }
                     newUiOpenModules.Add(r.Name);
-                    StartNewUiArrow(arrowKey, true);
+                    newUiAnimateNext = true; newUiOpened = arrowKey;
                 }
                 Draw(true);
             };
@@ -914,16 +913,7 @@ namespace LunarLink
                 var detailText = NewUiLabel(row, detail, new Vector2(-120, -12), new Vector2(300, 22), 13, Dim, TextAnchor.MiddleLeft);
                 detailText.supportRichText = true;
             }
-            var arrow = NewUiButton(row, "▶", new Vector2(264, 0), new Vector2(48, 34), true, toggle, 8);
-            var arrowText = arrow.GetComponentInChildren<UnityEngine.UI.Text>();
-            if (arrowText != null)
-            {
-                float target = open ? -90f : 0f, from = target;
-                if (newUiAnimateNext && newUiQueuedArrowAnimations.TryGetValue(arrowKey, out var animation)) from = animation.From;
-                arrowText.rectTransform.localRotation = Quaternion.Euler(0, 0, from);
-                if (newUiAnimateNext && newUiQueuedArrowAnimations.TryGetValue(arrowKey, out animation))
-                    newUiArrowTweens.Add(new UiArrowTween { Arrow = arrowText.rectTransform, From = animation.From, To = animation.To, Until = Time.unscaledTime + 0.22f });
-            }
+            NewUiButton(row, open ? "-" : "+", new Vector2(264, 0), new Vector2(48, 34), true, toggle, 22);     // + opens, - closes
             if (!open) return;
 
             var actionsRow = NewUiRow(newUiContent, newUiRow++, 52f, true, false, false);
@@ -941,26 +931,21 @@ namespace LunarLink
             const float actionRight = arrowCenter + arrowWidth / 2f;
             float reloadX = actionRight - reloadWidth / 2f;
             float disableX = actionRight - reloadWidth - buttonGap - disableWidth / 2f;
+            if (PluginSettings.For(moduleName, null, moduleName + ".dll").Count > 0)
+                NewUiButton(actionsRow, "Settings", new Vector2(disableX - disableWidth / 2f - buttonGap - SettingsButtonW / 2f, 0), new Vector2(SettingsButtonW, 34), false,
+                    () => OpenNewUiSettings(new SettingsPage { Title = display, Name = moduleName, File = moduleName + ".dll", Hot = true }), 16);
             NewUiButton(actionsRow, disabled ? "Enable" : "Disable", new Vector2(disableX, 0), new Vector2(disableWidth, 34), disabled,
                 () => Act(() =>
                 {
                     QueueNewUiGradient(moduleName, false);
                     var result = disabled ? Hot.Enable(moduleName, reload: false) : Hot.Disable(moduleName);
-                    if (disabled && result != null && result.Error == null) PluginSettings.MarkHotApplied(moduleName);
                     return Done(result, disabled ? "Enabled " + display : "Disabled " + display);
                 }), 16);
-            bool applySettings = PluginSettings.HasPendingHot(moduleName);
-            var reloadButton = NewUiButton(actionsRow, applySettings ? "Apply" : "Reload", new Vector2(reloadX, 0), new Vector2(reloadWidth, 34), applySettings,
+            var reloadButton = NewUiButton(actionsRow, "Reload", new Vector2(reloadX, 0), new Vector2(reloadWidth, 34), false,
                 () => Act(() =>
                 {
                     QueueNewUiGradient(moduleName, true);
-                    var result = Hot.Enable(moduleName, reload: true);
-                    if (result != null && result.Error == null && applySettings)
-                    {
-                        PluginSettings.MarkHotApplied(moduleName);
-                        newUiShowSettingsToastNext = true;
-                    }
-                    return Done(result, applySettings ? "Applied settings for " + display : "Reloaded " + display);
+                    return Done(Hot.Enable(moduleName, reload: true), "Reloaded " + display);
                 }), 16, !disabled);
             if (disabled)
             {
@@ -970,30 +955,72 @@ namespace LunarLink
                 disabledGroup.alpha = 0.45f; disabledGroup.interactable = false; disabledGroup.blocksRaycasts = false;
                 actions.Remove(reloadButton.gameObject.GetInstanceID());
             }
-            AddNewUiSettings(rowKey, row, PluginSettings.For(r.Name, null, r.Name + ".dll", true));
         }
 
-        static void AddNewUiSettings(string rowKey, RectTransform parentRow, List<PluginSettings.Entry> settings)
+        const float SettingsButtonW = 96f;
+
+        static void OpenNewUiSettings(SettingsPage page)
         {
-            if (settings == null || settings.Count == 0) return;
-            var index = 0;
+            page.ScrollBefore = newUiScrollTarget;
+            newUiSettingsPage = page;
+            newUiScroll = newUiScrollTarget = 0f; newUiAnimateNext = true;
+            Draw(true);
+        }
+
+        static void CloseNewUiSettings()
+        {
+            var page = newUiSettingsPage; newUiSettingsPage = null;
+            if (page != null) { newUiScroll = newUiScrollTarget = page.ScrollBefore; }
+            newUiAnimateNext = true;
+            Draw(true);
+        }
+
+        // The settings page: a header row (Back, the plugin's name, and for a hot plugin Reload, which applies the changes
+        // at once: a reload reads its config again), then its settings, under a heading for each section when it has more
+        // than one. A normal BepInEx plugin's changes wait for a restart (Restart & Apply).
+        static void AddNewUiSettingsPage(SettingsPage page)
+        {
+            var settings = PluginSettings.For(page.Name, page.Guid, page.File);
+            var header = NewUiRow(newUiContent, newUiRow++, 52f, true);
+            newUiLiveRows["s:header"] = header;
+            NewUiButton(header, "‹ Back", new Vector2(-250, 0), new Vector2(90, 34), false, CloseNewUiSettings, 16);
+            NewUiLabel(header, page.Title + "  <size=13><color=#77736E>settings</color></size>", new Vector2(-40, 0), new Vector2(300, 34), 16, Ink, TextAnchor.MiddleLeft).supportRichText = true;
+            if (page.Hot)
+            {
+                bool changed = settings.Any(PluginSettings.Changed);
+                NewUiButton(header, "Reload", new Vector2(246, 0), new Vector2(84, 34), changed, () => Act(() =>
+                {
+                    var result = Hot.Enable(page.Name, reload: true);
+                    if (result != null && result.Error == null) PluginSettings.Applied(settings);
+                    return Done(result, "Reloaded " + page.Title + (changed ? ": its new settings are in use" : ""));
+                }), 16);
+            }
+            bool sections = settings.Select(x => x.Section).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
+            string section = null; int index = 0;
             foreach (var setting in settings)
             {
-                var settingRow = NewUiRow(newUiContent, newUiRow++, 52f, true, false, false);
-                // Every expanded row belongs behind the plugin header, including
-                // the individual setting rows.  This preserves the QC reveal.
-                settingRow.SetSiblingIndex(parentRow.GetSiblingIndex());
-                var key = rowKey + ":setting:" + index++;
-                newUiLiveRows[key] = settingRow;
-                AddNewUiSetting(settingRow, setting);
+                if (sections && !string.Equals(section, setting.Section, StringComparison.OrdinalIgnoreCase))
+                {
+                    section = setting.Section;
+                    var heading = NewUiRow(newUiContent, newUiRow++, 52f, true, true);
+                    newUiLiveRows["s:section:" + section] = heading;
+                    NewUiLabel(heading, "<b>" + section + "</b>", new Vector2(-120, 0), new Vector2(300, 30), 14, Dim, TextAnchor.MiddleLeft).supportRichText = true;
+                }
+                var row = NewUiRow(newUiContent, newUiRow++, 52f, false);
+                newUiLiveRows["s:" + index++] = row;
+                AddNewUiSetting(row, setting);
+            }
+            if (settings.Count == 0)
+            {
+                var empty = NewUiRow(newUiContent, newUiRow++, 52f, true, true);
+                newUiLiveRows["s:none"] = empty;
+                NewUiLabel(empty, "No settings found in its config file", new Vector2(-120, 0), new Vector2(300, 30), 14, Dim, TextAnchor.MiddleLeft);
             }
         }
 
         static void AddNewUiSetting(RectTransform row, PluginSettings.Entry setting)
         {
-            var section = string.IsNullOrEmpty(setting.Section) || setting.Section.Equals("General", StringComparison.OrdinalIgnoreCase)
-                ? "" : setting.Section + " / ";
-            var title = NewUiLabel(row, section + setting.Key, new Vector2(-120, string.IsNullOrEmpty(setting.Description) ? 0 : 10),
+            var title = NewUiLabel(row, setting.Key, new Vector2(-120, string.IsNullOrEmpty(setting.Description) ? 0 : 10),
                 new Vector2(300, 24), 14, Ink, TextAnchor.MiddleLeft);
             title.horizontalOverflow = HorizontalWrapMode.Overflow;
             if (!string.IsNullOrEmpty(setting.Description))
@@ -1064,17 +1091,17 @@ namespace LunarLink
                 if (open)
                 {
                     newUiOpenBepPlugins.Remove(key);
-                    StartNewUiArrow(arrowKey, false);
+                    newUiAnimateNext = true;
                 }
                 else
                 {
                     foreach (var previous in newUiOpenBepPlugins.ToList())
                     {
                         newUiOpenBepPlugins.Remove(previous);
-                        StartNewUiArrow("b:" + previous, false);
+                        newUiAnimateNext = true;
                     }
                     newUiOpenBepPlugins.Add(key);
-                    StartNewUiArrow(arrowKey, true);
+                    newUiAnimateNext = true; newUiOpened = arrowKey;
                 }
                 Draw(true);
             };
@@ -1097,16 +1124,7 @@ namespace LunarLink
                 detailText.supportRichText = true;
             }
 
-            var arrow = NewUiButton(row, "▶", new Vector2(264, 0), new Vector2(48, 34), true, toggle, 8);
-            var arrowText = arrow.GetComponentInChildren<UnityEngine.UI.Text>();
-            if (arrowText != null)
-            {
-                float target = open ? -90f : 0f, from = target;
-                if (newUiAnimateNext && newUiQueuedArrowAnimations.TryGetValue(arrowKey, out var animation)) from = animation.From;
-                arrowText.rectTransform.localRotation = Quaternion.Euler(0, 0, from);
-                if (newUiAnimateNext && newUiQueuedArrowAnimations.TryGetValue(arrowKey, out animation))
-                    newUiArrowTweens.Add(new UiArrowTween { Arrow = arrowText.rectTransform, From = animation.From, To = animation.To, Until = Time.unscaledTime + 0.22f });
-            }
+            NewUiButton(row, open ? "-" : "+", new Vector2(264, 0), new Vector2(48, 34), true, toggle, 22);     // + opens, - closes
             if (!open) return;
 
             var actionsRow = NewUiRow(newUiContent, newUiRow++, 52f, true, false, false);
@@ -1148,7 +1166,14 @@ namespace LunarLink
                         return BepPlugins.Disable(file) ?? "Turned back off: " + file + ". It never loaded, so no restart is needed";
                     }), 16);
             }
-            AddNewUiSettings(rowKey, row, PluginSettings.For(e.Name, e.Guid, e.File));
+            if (PluginSettings.For(e.Name, e.Guid, e.File).Count > 0)
+            {
+                bool hasToggle = !e.Self && e.State != "file gone";
+                float settingsX = hasToggle ? disableX - disableWidth / 2f - 8f - SettingsButtonW / 2f : actionRight - SettingsButtonW / 2f;
+                string name = e.Name, guid = e.Guid, file = e.File;
+                NewUiButton(actionsRow, "Settings", new Vector2(settingsX, 0), new Vector2(SettingsButtonW, 34), false,
+                    () => OpenNewUiSettings(new SettingsPage { Title = display, Name = name, Guid = guid, File = file, Hot = false }), 16);
+            }
         }
 
         static void AddNewUiApiEndpoint((string group, string from, string method, string path, string help) e)
@@ -1161,17 +1186,17 @@ namespace LunarLink
                 if (open)
                 {
                     newUiOpenApiEndpoints.Remove(key);
-                    StartNewUiArrow(rowKey, false);
+                    newUiAnimateNext = true;
                 }
                 else
                 {
                     foreach (var previous in newUiOpenApiEndpoints.ToList())
                     {
                         newUiOpenApiEndpoints.Remove(previous);
-                        StartNewUiArrow("a:" + previous, false);
+                        newUiAnimateNext = true;
                     }
                     newUiOpenApiEndpoints.Add(key);
-                    StartNewUiArrow(rowKey, true);
+                    newUiAnimateNext = true; newUiOpened = rowKey;
                 }
                 Draw(true);
             };
@@ -1189,16 +1214,7 @@ namespace LunarLink
             if (!string.IsNullOrEmpty(e.group))
                 NewUiLabel(row, e.group, new Vector2(-120, -12), new Vector2(300, 22), 13, Dim, TextAnchor.MiddleLeft);
 
-            var arrow = NewUiButton(row, "▶", new Vector2(264, 0), new Vector2(48, 34), true, toggle, 8);
-            var arrowText = arrow.GetComponentInChildren<UnityEngine.UI.Text>();
-            if (arrowText != null)
-            {
-                float target = open ? -90f : 0f, from = target;
-                if (newUiAnimateNext && newUiQueuedArrowAnimations.TryGetValue(rowKey, out var animation)) from = animation.From;
-                arrowText.rectTransform.localRotation = Quaternion.Euler(0, 0, from);
-                if (newUiAnimateNext && newUiQueuedArrowAnimations.TryGetValue(rowKey, out animation))
-                    newUiArrowTweens.Add(new UiArrowTween { Arrow = arrowText.rectTransform, From = animation.From, To = animation.To, Until = Time.unscaledTime + 0.22f });
-            }
+            NewUiButton(row, open ? "-" : "+", new Vector2(264, 0), new Vector2(48, 34), true, toggle, 22);     // + opens, - closes
             if (!open) return;
 
             var actionsRow = NewUiRow(newUiContent, newUiRow++, 52f, true, false, false);
@@ -1248,12 +1264,6 @@ namespace LunarLink
             return parsed.ToString(3);
         }
 
-        static void StartNewUiArrow(string key, bool opening)
-        {
-            if (string.IsNullOrEmpty(key)) return;
-            newUiAnimateNext = true;
-            newUiQueuedArrowAnimations[key] = (opening ? 0f : -90f, opening ? -90f : 0f);
-        }
 
         static void BeginNewUiKeyCapture()
         {
@@ -1452,14 +1462,6 @@ namespace LunarLink
             }
         }
 
-        static void ShowNewUiSettingsToast()
-        {
-            if (newUiToastText == null) return;
-            newUiToastText.text = "Some settings may still require a full game restart to take effect.";
-            newUiToastText.transform.parent.gameObject.SetActive(true);
-            newUiToastUntil = Time.unscaledTime + 4f;
-        }
-
         static void AddNewUiFolder(string label, string count, int depth, Action toggle, bool groupActions, bool expanded, string arrowKey)
         {
             var r = NewUiRow(newUiContent, newUiRow++, 52f, true); NewUiFolder(r, depth);
@@ -1469,19 +1471,14 @@ namespace LunarLink
             float x = groupActions ? -95 + depth * 14 : -23.5f, width = groupActions ? 320 - depth * 14 : 467;
             NewUiLabel(r, label + "  <size=13><color=#77736E>" + count + "</color></size>", new Vector2(x, 0), new Vector2(width, 40), 15, Ink, TextAnchor.MiddleLeft).supportRichText = true;
             if (groupActions) { NewUiButton(r, "Rename", new Vector2(115, 0), new Vector2(86, 34), false); NewUiButton(r, "Delete", new Vector2(205, 0), new Vector2(84, 34), false); }
-            var arrow = NewUiButton(r, "▶", new Vector2(276, 0), new Vector2(48, 34), true, toggle, 8);
-            var text = arrow.GetComponentInChildren<UnityEngine.UI.Text>(); if (text == null) return;
-            float target = expanded ? -90f : 0f, from = target;
-            if (newUiAnimateNext && newUiQueuedArrowAnimations.TryGetValue(arrowKey, out var animation)) from = animation.From;
-            text.rectTransform.localRotation = Quaternion.Euler(0, 0, from);
-            if (newUiAnimateNext && newUiQueuedArrowAnimations.TryGetValue(arrowKey, out animation)) newUiArrowTweens.Add(new UiArrowTween { Arrow = text.rectTransform, From = animation.From, To = animation.To, Until = Time.unscaledTime + 0.22f });
+            NewUiButton(r, expanded ? "-" : "+", new Vector2(276, 0), new Vector2(48, 34), true, toggle, 22);     // + opens, - closes
         }
 
         static void RenderNewUiGroup(System.Text.Json.JsonElement group, int depth)
         {
             string id = group.GetProperty("id").GetString(); bool open = newUiOpenGroups.Contains(id);
             string count = UiCountPhrase(group.GetProperty("channels").GetInt32(), "channel") + ", " + UiCountPhrase(group.GetProperty("adapters").GetInt32(), "adapter");
-            AddNewUiFolder(group.GetProperty("name").GetString(), count, depth, () => { if (open) newUiOpenGroups.Remove(id); else newUiOpenGroups.Add(id); StartNewUiArrow("g:" + id, !open); Draw(true); }, true, open, "g:" + id);
+            AddNewUiFolder(group.GetProperty("name").GetString(), count, depth, () => { if (open) newUiOpenGroups.Remove(id); else newUiOpenGroups.Add(id); newUiAnimateNext = true; if (!open) newUiOpened = "g:" + id; Draw(true); }, true, open, "g:" + id);
             if (!open) return;
             foreach (var child in newUiGroups.Where(g => g.TryGetProperty("parent", out var p) && p.ValueKind == System.Text.Json.JsonValueKind.String && p.GetString() == id)) RenderNewUiGroup(child, depth + 1);
             foreach (var channel in newUiChannels.Where(c => c.TryGetProperty("group", out var g) && g.ValueKind == System.Text.Json.JsonValueKind.String && g.GetString() == id)) RenderNewUiChannel(channel, depth + 1, false);
@@ -1513,6 +1510,25 @@ namespace LunarLink
                 newUiRowTweens.Add(new UiRowTween { Row = row, From = from, To = to, Until = Time.unscaledTime + 0.22f });
             }
             return row;
+        }
+
+        // rows are laid out 600 wide (Quantum's size); this widens one to the list's width: what sits on the right keeps
+        // its distance from the right edge, what sits on the left from the left edge, left-aligned text grows into the
+        // room between, and anything centred spans the new width
+        static float newUiRowW = 600f;
+        static void StretchNewUiRow(RectTransform row)
+        {
+            float dx = (newUiRowW - 600f) / 2f;
+            if (dx <= 0f || Mathf.Abs(row.sizeDelta.x - 600f) > 0.5f) return;              // already stretched
+            for (int i = 0; i < row.childCount; i++)
+            {
+                var c = row.GetChild(i) as RectTransform; if (c == null || c.name == "Row") continue;
+                var p = c.anchoredPosition; var text = c.GetComponent<UnityEngine.UI.Text>();
+                bool leftText = text != null && (text.alignment == TextAnchor.MiddleLeft || text.alignment == TextAnchor.UpperLeft || text.alignment == TextAnchor.LowerLeft);
+                if (Mathf.Abs(p.x) < 1f || leftText && p.x < 0f) c.sizeDelta = new Vector2(c.sizeDelta.x + 2f * dx, c.sizeDelta.y);
+                else c.anchoredPosition = new Vector2(p.x + (p.x > 0f ? dx : -dx), p.y);
+            }
+            row.sizeDelta = new Vector2(newUiRowW, row.sizeDelta.y);
         }
 
         static Image NewUiGradientImage(RectTransform row)
@@ -1583,7 +1599,7 @@ namespace LunarLink
             newUiScrollTarget = Mathf.Clamp(newUiScrollTarget - (Mathf.Abs(wheel) > 10f ? wheel / 6f : wheel * 30f), 0, max);
         }
 
-        static Image NewUiFade(Transform parent, bool top, Vector2 pos)
+        static Image NewUiFade(Transform parent, bool top, Vector2 pos, float width)
         {
             const int h = 64; var texture = new Texture2D(1, h, TextureFormat.RGBA32, false) { name = top ? "Quantum Top Fade" : "Quantum Bottom Fade", filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
             var pixels = new Color[h];
@@ -1591,7 +1607,7 @@ namespace LunarLink
             texture.SetPixels(pixels); texture.Apply(false, true);
             var sprite = Sprite.Create(texture, new UnityEngine.Rect(0, 0, 1, h), new Vector2(0.5f, 0.5f), 100f);
             if (top) newUiTopFadeSprite = sprite; else newUiBottomFadeSprite = sprite;
-            var r = Rect("List Fade", parent, new Vector2(620, 32), pos, null);
+            var r = Rect("List Fade", parent, new Vector2(width, 32), pos, null);
             var image = r.gameObject.AddComponent<Image>(); image.sprite = sprite; image.type = Image.Type.Sliced; image.color = Panel; image.raycastTarget = false; image.gameObject.SetActive(false); image.transform.SetAsLastSibling();
             return image;
         }
@@ -1911,16 +1927,9 @@ namespace LunarLink
         static void Act(Func<string> what)
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            bool showSettingsToast = false;
-            try
-            {
-                message = what() + " (" + clock.ElapsedMilliseconds + " ms)";
-                showSettingsToast = newUiShowSettingsToastNext;
-                newUiShowSettingsToastNext = false;
-            }
+            try { message = what() + " (" + clock.ElapsedMilliseconds + " ms)"; }
             catch (Exception e) { message = "Error: " + e.Message; Plugin.L.LogWarning("hot window: " + e); }
             if (layer != null) Draw(true);          // a reload of this module from its own row has closed this copy
-            if (showSettingsToast && newUi) ShowNewUiSettingsToast();
         }
 
         // A left-click press: runs the button under the mouse.

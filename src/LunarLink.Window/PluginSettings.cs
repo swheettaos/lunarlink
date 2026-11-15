@@ -18,8 +18,7 @@ namespace LunarLink
 
         internal sealed class Entry
         {
-            internal string Id, Path, Section, Key, Description, Value, Owner;
-            internal bool Hot;
+            internal string Id, Path, Section, Key, Description, Value;
             internal Kind Type;
             internal string[] Options = Array.Empty<string>();
             internal double? Min, Max;
@@ -28,29 +27,16 @@ namespace LunarLink
 
         static readonly Regex SettingType = new Regex(@"^#\s*Setting type:\s*(.+)$", RegexOptions.IgnoreCase | RegexOptions.Compiled);
         static readonly Regex Range = new Regex(@"From\s+([^ ]+)\s+to\s+([^ ]+)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
-        sealed class PendingValue
-        {
-            internal string Original, Owner;
-            internal bool Hot;
-        }
-
-        static readonly Dictionary<string, PendingValue> originalValues = new Dictionary<string, PendingValue>(StringComparer.Ordinal);
+        // each changed setting's value before this session changed it: something here waits for a restart
+        static readonly Dictionary<string, string> originalValues = new Dictionary<string, string>(StringComparer.Ordinal);
         internal static bool Pending => originalValues.Count > 0;
-        internal static bool PendingHot => originalValues.Values.Any(x => x.Hot);
-        internal static bool PendingNormal => originalValues.Values.Any(x => !x.Hot);
-        internal static IEnumerable<string> PendingHotOwners => originalValues.Values.Where(x => x.Hot && !string.IsNullOrEmpty(x.Owner)).Select(x => x.Owner).Distinct(StringComparer.OrdinalIgnoreCase);
-        internal static bool HasPendingHot(string owner) => originalValues.Values.Any(x => x.Hot && string.Equals(x.Owner, owner, StringComparison.OrdinalIgnoreCase));
-
-        internal static void MarkHotApplied(string owner)
-        {
-            if (string.IsNullOrEmpty(owner)) return;
-            foreach (var id in originalValues.Where(x => x.Value.Hot && string.Equals(x.Value.Owner, owner, StringComparison.OrdinalIgnoreCase)).Select(x => x.Key).ToList())
-                originalValues.Remove(id);
-        }
+        internal static bool Changed(Entry entry) => originalValues.ContainsKey(entry.Id);
+        // a hot plugin reloaded: it read its config again, so these settings no longer wait for a restart
+        internal static void Applied(IEnumerable<Entry> entries) { foreach (var e in entries) originalValues.Remove(e.Id); }
 
         static string ConfigDir => BepInEx.Paths.ConfigPath;
 
-        internal static List<Entry> For(string name, string guid = null, string file = null, bool hot = false)
+        internal static List<Entry> For(string name, string guid = null, string file = null)
         {
             var result = new List<Entry>();
             if (!Directory.Exists(ConfigDir)) return result;
@@ -61,7 +47,7 @@ namespace LunarLink
                 if (score < 35) continue;
                 try
                 {
-                    foreach (var entry in Read(path)) { entry.Owner = name; entry.Hot = hot; result.Add(entry); }
+                    result.AddRange(Read(path));
                 }
                 catch (Exception e) { Plugin.L.LogWarning("settings: could not read " + Path.GetFileName(path) + ": " + e.Message); }
             }
@@ -214,10 +200,10 @@ namespace LunarLink
                 var temp = entry.Path + ".lunarlink.new";
                 File.WriteAllLines(temp, lines);
                 File.Move(temp, entry.Path, true);
-                if (!originalValues.ContainsKey(entry.Id)) originalValues[entry.Id] = new PendingValue { Original = entry.Value ?? "", Owner = entry.Owner, Hot = entry.Hot };
+                if (!originalValues.ContainsKey(entry.Id)) originalValues[entry.Id] = entry.Value ?? "";
                 entry.Value = value;
-                if (string.Equals(originalValues[entry.Id].Original, value, StringComparison.Ordinal)) originalValues.Remove(entry.Id);
-                return "Changed " + entry.Key + " to " + value + ". " + (entry.Hot ? "Reload or restart to apply." : "Restart to apply.");
+                if (string.Equals(originalValues[entry.Id], value, StringComparison.Ordinal)) originalValues.Remove(entry.Id);
+                return "Changed " + entry.Key + " to " + value + ". Restart to apply.";
             }
             catch (Exception e)
             {
