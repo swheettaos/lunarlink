@@ -227,11 +227,20 @@ namespace LunarLink
             lock (gate) { names = toReload; toReload = null; mods = modulesToReload; modulesToReload = null; }
             if (names != null)
             {
+                const string Self = "LunarLink.Update";
                 var done = new List<string>(); var failed = new List<string>();
-                foreach (var n in names) { var ok = Reload(n); if (ok == true) done.Add(n); else if (ok == false) failed.Add(n); }
+                foreach (var n in names)
+                {
+                    if (n == Self) continue;                            // this module last: reloading it ends this copy
+                    var ok = Reload(n); if (ok == true) done.Add(n); else if (ok == false) failed.Add(n);
+                }
+                bool self = names.Contains(Self);
                 if (failed.Count > 0) Set("failed", "reloaded " + string.Join(", ", done), "these modules failed to start: " + string.Join(", ", failed));
                 else Set("done", "LunarLink " + latest + ": "
-                    + (done.Count > 0 ? "reloaded " + string.Join(", ", done) : "modules updated") + ", no restart needed");
+                    + (done.Count > 0 || self ? "reloaded " + string.Join(", ", self ? done.Append(Self) : done) : "modules updated") + ", no restart needed");
+                // the new copy of this module starts with nothing checked: told it's a self-update, it looks again (it
+                // finds this release as the latest), instead of showing "not checked" (2026-11-15)
+                if (self) { SelfUpdating = true; Reload(Self); SelfUpdating = false; }
             }
             if (mods != null)
             {
