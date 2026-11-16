@@ -27,6 +27,8 @@ changes the core needs a game restart; modules and hot plugins always update in 
 - **Fixed: F9 rows sometimes drew narrow** (after Show / Hide of Lunar Link's modules, for example): a row's parts were
   found with a C# cast that fails once the game's garbage collector has run, so they weren't widened with the row.
 - **F9's Rescan sits beside Support file**; on the right it covered the help button next to the title.
+- **Fixed: after an update reloaded the Updates module, F9's Updates tab said "not checked".** The module now reloads
+  itself last and checks again.
 
 ## 1.3.1
 
