@@ -3,7 +3,7 @@
 Each release's section is its notes on the GitHub releases page (`tools/release.sh` copies it there). Only a release that
 changes the core needs a game restart; modules and hot plugins always update in place.
 
-## Unreleased
+## 1.4.0
 
 - **MoonFramework's save files are guarded** (only when MoonFramework is installed; without it nothing runs). MoonFramework
   0.7.8 could write a save slot's file from another world, or an empty one after a world was unloaded - leaving a
@@ -15,7 +15,6 @@ changes the core needs a game restart; modules and hot plugins always update in 
   in its folder) is newer than the running game, a new plugin copied into `BepInEx/plugins/`, or a new LunarLink core
   waiting to load. The row says "newer build from next start" or "on from next start"; the button shows on Mods (and on
   Updates for a core). Hot mods don't need it: they reload in place.
-
 - **The fps fixes are settings in F9** (Hot Mods → Show → Lunar Link Performance → Settings), each with its own on/off
   switch and, where it takes one, its value: fast power linking; backing off refused offers, and how many frames;
   silencing far machines, and beyond how many metres. A change is in use at once. They're kept in
