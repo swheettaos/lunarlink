@@ -23,6 +23,7 @@ namespace LunarLink
                 case "LunarLink.Update": return "Lunar Link Updates";
                 case "LunarLink.Window": return "Lunar Link Window";
                 case "LunarLink.Wrap": return "Lunar Link Wrapper";
+                case "LunarLink.Framework": return "Lunar Link MoonFramework Guard";
             }
             if (name.IndexOf('.') >= 0 || name.IndexOf(' ') >= 0) return name;
             var b = new StringBuilder(name.Length + 8);

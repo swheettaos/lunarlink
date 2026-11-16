@@ -5,6 +5,12 @@ changes the core needs a game restart; modules and hot plugins always update in 
 
 ## Unreleased
 
+- **MoonFramework's save files are guarded** (only when MoonFramework is installed; without it nothing runs). MoonFramework
+  0.7.8 could write a save slot's file from another world, or an empty one after a world was unloaded - leaving a
+  friend's game emptied the player's own slot, and Quantum adapters came back as plain splitters. The new
+  LunarLink.Framework module stops that write, keeps copies of each slot's file as it changes, and puts a wiped file back
+  as its world loads (only when the world still holds the buildings the copy names, so a file emptied on purpose is
+  left alone). Setting: `[Safety] Guard MoonFramework saves` (F9: Lunar Link MoonFramework Guard). Needs the new core.
 - **Restart & Apply pops up when code changes on disk**, not only for settings: a normal plugin whose DLL (or a library
   in its folder) is newer than the running game, a new plugin copied into `BepInEx/plugins/`, or a new LunarLink core
   waiting to load. The row says "newer build from next start" or "on from next start"; the button shows on Mods (and on

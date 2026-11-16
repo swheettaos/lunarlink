@@ -44,6 +44,7 @@ deploy key on it, the key's private half as the secret `REFS_DEPLOY_KEY`, and th
 | `src/LunarLink.Perf` | Measuring and the fps fixes |
 | `src/LunarLink.Window` | The F9 window (`Window*.cs`: lifecycle, pane, parts, tabs, settings, restart) and normal BepInEx plugins (`BepPlugins.cs`, `PluginSettings.cs`) |
 | `src/LunarLink.Update`, `src/LunarLink.Wrap` | The updater (`Updater*.cs`: checking, installing) and the wrapper for normal plugins |
+| `src/LunarLink.Framework` | Guards MoonFramework's per-save file (`SaveGuard.cs`); does nothing unless MoonFramework is loaded |
 | `samples/HelloHot` | The example hot plugin |
 | `docs/` | The GitHub Pages site: the API reference and the plugin guide |
 | `docs/endpoints.toml` | Every endpoint's details: parameters, examples, answers |
