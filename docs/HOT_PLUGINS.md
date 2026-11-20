@@ -82,6 +82,8 @@ reference to LunarLink.
 | `void Update()`, `void LateUpdate()` | no | Every frame |
 | `string HandleHttp(string method, string path, NameValueCollection query, string body)` | no | For each request no LunarLink route answered. Return JSON, or `null` for "not mine" |
 | `string[] HttpHelp()` | no | One line per endpoint, `"GET /path?x= \| what it does"`, for `/help`, `/help.html` and the API tab |
+| `string[] SettingsButtons()` | no | One line per one-click Settings action: `"id \| button label \| description"`; only shown for a running hot plugin |
+| `string ClickSettingButton(string id)` | no | Run the declared action identified by `id`; F9 calls it on the main thread and reloads the plugin afterward |
 | `static void Boot()` | no | Once, at game start, from the first copy. The only place to register MoonFramework buildings and cargo |
 | `static bool StartEarly` (property or field, `true`) | no | Not a call: with it, `Start` runs at game start, where BepInEx starts normal plugins, before any world, and again there after a reload at the main menu. For a plugin that has to be in place before a save loads (it patches world loading). `Start` must not assume a world then |
 | `void WorldLoaded()` | no | Each time a world has finished loading (after the loading screen), **and right after `Start` when a world is already loaded**: set the world up here, and a copy reloaded mid-game sets it up exactly as a fresh load would |
@@ -90,6 +92,33 @@ reference to LunarLink.
 
 State crosses as a string because each copy has its own versions of your types; only .NET's, the game's, Unity's and
 MoonFramework's types are shared between copies.
+
+### One-click Settings actions
+
+A hot plugin can add a small number of explicit, user-triggered actions to its Settings page without referencing
+LunarLink. `SettingsButtons()` returns one line per action, using `id | label | description`. When the player clicks
+the action, LunarLink calls `ClickSettingButton(id)` on the current copy and then reloads the plugin through the normal
+`Stop` → load → `Start` path. This is intended for one-shot operations such as clearing remembered preferences. The
+action should update the plugin's own config or state and return a short status message; it should not call `Stop`,
+reload itself, or start background work. Exceptions are caught and the reload is skipped.
+
+```csharp
+public string[] SettingsButtons() => new[]
+{
+    "reset | Reset counters | Clears the counters kept by this plugin."
+};
+
+public string ClickSettingButton(string id)
+{
+    if (id != "reset") return "Unknown settings action";
+    ResetCounters();
+    return "Counters reset";
+}
+```
+
+The button is click-only: Lunar Link does not poll it or add an `Update()` call, so it has no ongoing frame-time cost.
+Normal BepInEx plugins in the Mods tab cannot use this contract because they cannot be unloaded safely; their settings
+continue to use Restart & Apply.
 
 ## The rules
 

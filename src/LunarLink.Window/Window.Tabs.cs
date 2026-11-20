@@ -59,7 +59,7 @@ namespace LunarLink
                 ? "A normal BepInEx plugin run by the wrapper: "
                 + (r.Warnings.Length == 0 ? "nothing found it can't undo" : string.Join("; ", r.Warnings))
                 : r.Built != null ? "built " + r.Built : "not loaded", 0, 330, 13, Dim);
-            Action settings = PluginSettings.For(name, null, name + ".dll").Count > 0
+            Action settings = PluginSettings.For(name, null, name + ".dll").Count > 0 || Hot.Buttons(name).Count > 0
                 ? () => OpenSettings(new SettingsPage { Title = display, Name = name, File = name + ".dll", Hot = true }) : (Action)null;
             if (waits)
             {

@@ -34,6 +34,7 @@ namespace LunarLink
         {
             AddSupportButton();
             var settings = PluginSettings.For(p.Name, p.Guid, p.File);
+            var buttons = p.Hot ? Hot.Buttons(p.Name) : new System.Collections.Generic.List<Hot.SettingButton>();
             var header = AddRow("s:header", Look.Heading);
             Button(header, "‹ Back", new Vector2(-250, 0), new Vector2(90, 34), false, CloseSettings);
             Label(header, p.Title + "  <size=13><color=" + DimHex
@@ -48,7 +49,15 @@ namespace LunarLink
                     return Done(result, "Reloaded " + p.Title + (changed ? ": its new settings are in use" : ""));
                 })));
             }
-            if (settings.Count == 0) { NoteRow("s:none", "No settings found in its config file"); return; }
+            if (settings.Count == 0 && buttons.Count == 0) { NoteRow("s:none", "No settings found in its config file"); return; }
+            int actionIndex = 0;
+            if (buttons.Count > 0)
+            {
+                RowText(AddRow("s:actions", Look.Off), "<b>Actions</b>", 0, 300, 14, Dim);
+                foreach (var button in buttons)
+                    AddSettingButton(AddRow("s:action:" + actionIndex++, Look.Live), p, button);
+            }
+            if (settings.Count == 0) return;
             bool sections = settings.Select(x => x.Section).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1;
             string section = null; int index = 0;
             foreach (var setting in settings)
@@ -60,6 +69,30 @@ namespace LunarLink
                 }
                 AddSetting(AddRow("s:" + index++, Look.Live), setting);
             }
+        }
+
+        // A plugin-owned one-shot action. The plugin does the work; Lunar Link reloads it immediately afterward so the
+        // new config/state is in the same copy the player continues using.
+        static void AddSettingButton(RectTransform row, SettingsPage p, Hot.SettingButton button)
+        {
+            bool described = !string.IsNullOrEmpty(button.Description);
+            RowText(row, button.Label, described ? 10 : 0, 300, 14, Ink);
+            if (described)
+            {
+                var d = button.Description.Replace("\r", " ").Replace("\n", " ").Trim();
+                RowText(row, d.Length > 54 ? d.Substring(0, 54) + "…" : d, -12, 320, 11, Dim);
+            }
+            var name = p.Name; var title = p.Title; var id = button.Id; var label = button.Label;
+            Button(row, "Run", new Vector2(Right - 75, 0), new Vector2(150, 34), true, () => Act(() =>
+            {
+                var result = Hot.RunButton(name, id, out var actionMessage);
+                if (result == null) return actionMessage ?? "Button could not run";
+                var note = string.IsNullOrWhiteSpace(actionMessage) ? "Ran " + label : actionMessage;
+                if (result.Error != null) return note + ". Failed to reload " + title + ": " + Short(result.Error);
+                if (Hot.Pinned(result)) return note + ". Restart required to reload " + title;
+                if (result.ReloadAtMenu) return note + ". Reload of " + title + " waits for the main menu";
+                return note + ". Reloaded " + title;
+            }), 13);
         }
 
         // its name, a short description under it, and its value on a button: a switch flips, a choice steps to the next,
