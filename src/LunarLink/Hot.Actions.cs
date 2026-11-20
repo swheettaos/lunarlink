@@ -109,6 +109,64 @@ namespace LunarLink
             p.Obj != null ? p.FileTime.ToLocalTime().ToString("HH:mm:ss") : null, p.Error, p.Obj != null && NewerOnDisk(p), p.HasBoot && !p.Booted,
             p.Wrapped, p.Warnings.ToArray())).ToList();
 
+        // Optional one-click actions shown on a hot plugin's Settings page. The plugin owns the action; LunarLink only
+        // invokes it on the main thread and then uses the same safe reload path as the page's Reload button.
+        internal readonly struct SettingButton
+        {
+            public readonly string Id, Label, Description;
+            public SettingButton(string id, string label, string description)
+            { Id = id; Label = label; Description = description; }
+        }
+
+        internal static List<SettingButton> Buttons(string name)
+        {
+            var result = new List<SettingButton>();
+            var p = Find(name);
+            if (p == null || !p.Running || p.SettingsButtonsM == null || p.ClickSettingButtonM == null) return result;
+            try
+            {
+                var lines = (string[])p.SettingsButtonsM.Invoke(p.Obj, null) ?? Array.Empty<string>();
+                foreach (var line in lines)
+                {
+                    var parts = (line ?? "").Split(new[] { '|' }, 3);
+                    if (parts.Length < 2) continue;
+                    var id = parts[0].Trim(); var label = parts[1].Trim();
+                    var description = parts.Length > 2 ? parts[2].Trim() : null;
+                    if (id.Length == 0 || label.Length == 0) continue;
+                    result.Add(new SettingButton(id, label, description));
+                }
+            }
+            catch (Exception e)
+            {
+                var x = e.InnerException ?? e;
+                LunarLink.Plugin.L.LogWarning("hot: " + p.Name + " SettingsButtons: " + x);
+            }
+            return result;
+        }
+
+        // Run a plugin-owned action, then reload that same hot plugin so config/state changes made by the action are read.
+        // The callback is invoked only from a button click; there is no polling or per-frame work here.
+        internal static Plugin RunButton(string name, string id, out string message)
+        {
+            message = null;
+            var p = Find(name);
+            if (p == null) { message = "Plugin not found"; return null; }
+            if (!p.Running || p.SettingsButtonsM == null || p.ClickSettingButtonM == null)
+            { message = "The plugin is not running or has no settings buttons"; return null; }
+            try
+            {
+                message = (string)p.ClickSettingButtonM.Invoke(p.Obj, new object[] { id });
+            }
+            catch (Exception e)
+            {
+                var x = e.InnerException ?? e;
+                message = "Button failed: " + x.Message;
+                LunarLink.Plugin.L.LogWarning("hot: " + p.Name + " ClickSettingButton: " + x);
+                return null;
+            }
+            return Enable(name, reload: true);
+        }
+
         static string StateOf(Plugin p) => p.Error != null ? "failed" : Pinned(p) && !p.Enabled ? "off at restart" : p.ReloadAtMenu ? "reloads at main menu"
             : !p.Enabled ? "disabled" : p.Running ? "running" : p.Obj != null ? "loaded" : "enabled";
 

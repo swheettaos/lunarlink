@@ -4,6 +4,7 @@
 //   Update() / LateUpdate()    every frame (no MonoBehaviour of your own while it's loaded hot)
 //   HandleHttp / HttpHelp      endpoints of its own, described for /help
 //   UpdateFeed                 where its builds are, so LunarLink can update it (optional)
+//   SettingsButtons / ClickSettingButton  one-click actions on F9's Settings page (optional)
 // HotHost.cs makes the same DLL a normal BepInEx plugin for players.
 using System.Collections.Specialized;
 using System.Reflection;
@@ -42,6 +43,18 @@ namespace HelloHot
         static void AfterStep() => productionSteps++;
 
         public string[] HttpHelp() => new[] { "GET /hello | HelloHot: how many times it started, frames and production steps since its last start" };
+
+        public string[] SettingsButtons() => new[]
+        {
+            "reset | Reset counter | Clears the production-step counter kept by this sample."
+        };
+
+        public string ClickSettingButton(string id)
+        {
+            if (id != "reset") return "Unknown settings action";
+            productionSteps = 0;
+            return "Production-step counter reset";
+        }
 
         // Where this plugin's builds are, so LunarLink can update it from F9's UPDATES tab (optional; null = no updates):
         //   "github:you/yourplugin"                      your GitHub repo's latest release (its .zip)

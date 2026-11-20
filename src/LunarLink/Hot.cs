@@ -7,6 +7,8 @@
 // (new to the folder) stays off until it's enabled - except LunarLink's own modules (LunarLink.*), which are on unless
 // they're in "disabled", so an update that brings a new module runs it and a module turned off on purpose stays off.
 // optional: string[] HttpHelp()  (one line per endpoint, "GET /path?x= | what it does", for /help and the API tab)
+//           string[] SettingsButtons()  (one line per button: "id | label | description", for F9's Settings page)
+//           string ClickSettingButton(string id)  (run one declared button action; F9 reloads the plugin afterwards)
 // A DLL without such a class but with a normal BepInEx plugin class runs wrapped, when the LunarLink.Wrap module is on:
 // the module rewrites it as it loads and hands back an object with Start and Stop (see IWrapper below and Track.cs).
 // Everything here runs on the main thread (Load, Pump's frames, and requests, which Pump answers).
@@ -59,7 +61,7 @@ namespace LunarLink
             public MethodInfo WorldM, WorldGoneM;                             // its optional WorldLoaded() and WorldUnloaded()
             public float WatchUntil; public int WatchErrors;                  // just reloaded: its errors are counted (ReloadWatch)
             public readonly List<string> Warnings = new List<string>();     // what the wrapper found in the DLL, for F9
-            public MethodInfo StartM, StopM, UpdateM, LateM, HttpM, HelpM;
+            public MethodInfo StartM, StopM, UpdateM, LateM, HttpM, HelpM, SettingsButtonsM, ClickSettingButtonM;
             public readonly List<WeakReference> Old = new List<WeakReference>();   // earlier copies' contexts, to see if they unload
             public readonly List<string> Leftovers = new List<string>();
         }

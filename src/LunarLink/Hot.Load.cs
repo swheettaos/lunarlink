@@ -100,6 +100,10 @@ namespace LunarLink
             p.HttpM = M(t, "HandleHttp", typeof(string), typeof(string), typeof(NameValueCollection), typeof(string));
             if (p.HttpM != null && p.HttpM.ReturnType != typeof(string)) p.HttpM = null;
             p.HelpM = M(t, "HttpHelp"); if (p.HelpM != null && p.HelpM.ReturnType != typeof(string[])) p.HelpM = null;
+            p.SettingsButtonsM = M(t, "SettingsButtons");
+            if (p.SettingsButtonsM != null && p.SettingsButtonsM.ReturnType != typeof(string[])) p.SettingsButtonsM = null;
+            p.ClickSettingButtonM = M(t, "ClickSettingButton", typeof(string));
+            if (p.ClickSettingButtonM != null && p.ClickSettingButtonM.ReturnType != typeof(string)) p.ClickSettingButtonM = null;
             p.HasBoot = t.GetMethod("Boot", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null) != null;
             p.WorldM = M(t, "WorldLoaded"); p.WorldGoneM = M(t, "WorldUnloaded");
             p.Early = !p.Wrapped && StartsEarly(t);
@@ -194,7 +198,7 @@ namespace LunarLink
             p.State = state;
             var ctx = p.Ctx;
             p.Obj = null; p.Ctx = null; p.Asm = null; p.Wrapped = false; p.Early = false;
-            p.StartM = p.StopM = p.UpdateM = p.LateM = p.HttpM = p.HelpM = p.WorldM = p.WorldGoneM = null;
+            p.StartM = p.StopM = p.UpdateM = p.LateM = p.HttpM = p.HelpM = p.SettingsButtonsM = p.ClickSettingButtonM = p.WorldM = p.WorldGoneM = null;
             if (ctx != null)
             {
                 p.Old.Add(new WeakReference(ctx));
